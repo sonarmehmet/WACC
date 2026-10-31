@@ -22,7 +22,8 @@ Hibrit (yerel + bulut) AI geliştirme ekibi sistemi. Üç Claude geliştirici ve
 2. `start_wacc.bat` dosyasına çift tıkla. Sanal ortamı kurar, Hub'ı hazırlar, ilk görevleri oluşturur ve `http://127.0.0.1:8765` adresinde başlatır.
 3. Ortam kontrolü için: `powershell -ExecutionPolicy Bypass -File scripts\check_env.ps1`
 4. Acil durdurma: `stop_wacc.bat` — devam için `resume_wacc.bat`.
-5. Yedek: `backup_wacc.bat` (veritabanı kopyası + git bundle, `backups/` içine).
+5. İlk çalıştırma testi (sistem açıkken): `smoke_wacc.bat`
+6. Yedek: `backup_wacc.bat` (veritabanı kopyası + git bundle, `backups/` içine).
 
 ## Yapı
 
