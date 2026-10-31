@@ -66,10 +66,11 @@
 - Test criteria: files open correctly; icon sizes match Android requirements
 
 ### T-0008 — Windows Execution Backend security spec
-- Owner: claude1 | Status: ASSIGNED | Priority: NORMAL
+- Owner: claude1 | Status: REVIEW | Priority: NORMAL
 - Branch: task/exec-spec | Commit: -
 - Files: docs/EXECUTION_SECURITY.md
 - Depends on: -
 - Description: Write docs/EXECUTION_SECURITY.md: which actions the Windows execution backend may perform, what needs user approval, allowlists, audit logging and the emergency stop contract.
 - Acceptance: Spec reviewed by the user; every risky action class has an approval rule.
 - Test criteria: review checklist
+- Note: Taslak hazır; kullanıcı onayı ve bölüm 9'daki 3 karar bekleniyor
