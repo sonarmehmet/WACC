@@ -1,0 +1,31 @@
+# Secrets and runtime data (never commit)
+data/*
+!data/.gitkeep
+*.env
+.env*
+tokens.json
+hub_token*.txt
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Flutter / Dart
+.dart_tool/
+build/
+*.apk
+*.aab
+local.properties
+key.properties
+*.jks
+
+# Node
+node_modules/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
