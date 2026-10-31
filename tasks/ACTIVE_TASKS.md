@@ -2,13 +2,14 @@
 # Active Tasks
 
 ### T-0001 — Backend core: FastAPI app, auth, config, DB layer
-- Owner: claude2 | Status: ASSIGNED | Priority: NORMAL
+- Owner: claude2 | Status: IN_PROGRESS | Priority: NORMAL
 - Branch: task/backend-core | Commit: -
 - Files: backend
 - Depends on: -
 - Description: Create backend/ (FastAPI) with settings, SQLite storage, auth, health endpoint and a clean module layout.
 - Acceptance: Server starts with one command; /health responds; config via env, no secrets in code.
 - Test criteria: pytest for config, db and health endpoints
+- Note: claude1 çekirdeği yazdı (commit c6c301f, FastAPI kısmı çalıştırılmadı); claude2 bağlanınca devralır
 
 ### T-0002 — Task Engine and Agent Manager
 - Owner: claude2 | Status: ASSIGNED | Priority: NORMAL
