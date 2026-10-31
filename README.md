@@ -10,8 +10,11 @@ Hibrit (yerel + bulut) AI geliştirme ekibi sistemi. Üç Claude geliştirici ve
 | Görev / kilit / karar / checkpoint sistemi | Yazıldı |
 | `tasks/*.md` otomatik özetler | Yazıldı |
 | Windows başlatma, yedek, acil durdurma betikleri | Yazıldı (Windows'ta henüz çalıştırılmadı) |
-| Backend core, Orchestrator, Agent Manager | Claude 2 görevi (T-0001..T-0003) |
+| Backend çekirdeği (config, auth, storage, /projects) | Yazıldı (T-0001), FastAPI kısmı henüz çalıştırılmadı |
+| Task Engine, Agent Manager, Orchestrator, Memory | Claude 2 görevi (T-0002, T-0003) |
 | Flutter uygulaması, Web panel | Claude 3 görevi (T-0004, T-0005) |
+
+> Yeni bir oturum açıyorsan önce `docs/HANDOFF.md` dosyasını oku.
 
 ## Hızlı başlangıç (Windows 10)
 

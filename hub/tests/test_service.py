@@ -137,7 +137,9 @@ class TaskTests(HubTestCase):
         self.assertIn("HANDOFF", [m["message_type"] for m in self.hub.inbox("claude3")])
 
     def test_seed_is_idempotent_and_renders(self):
-        self.assertEqual(len(seed(self.hub)), 6)
+        self.assertEqual(len(seed(self.hub)), 9)
+        self.assertEqual(self.hub.get_task("T-0009")["status"], "BACKLOG")
+        self.assertEqual(self.hub.get_task("T-0007")["owner"], "gemini")
         self.assertEqual(seed(self.hub), [])
         out = Path(self.tmp.name) / "tasks"
         files = render_all(self.hub, out)

@@ -55,3 +55,21 @@
 - Description: scripts/check_env.ps1, start_wacc.bat, backup, docs and the integration/review of other branches.
 - Acceptance: One-click start works on Windows 10; backup creates DB copy + git bundle.
 - Test criteria: script dry-run checks
+
+### T-0007 — Brand and visual assets: logo, app icon, palette
+- Owner: gemini | Status: ASSIGNED | Priority: NORMAL
+- Branch: task/assets | Commit: -
+- Files: assets
+- Depends on: -
+- Description: Create assets/branding/: WACC logo (SVG + PNG), Android app icon set, color palette and a short style guide. Only assets/ is yours; do not touch code folders.
+- Acceptance: Logo, icon set and palette committed under assets/branding with a style guide.
+- Test criteria: files open correctly; icon sizes match Android requirements
+
+### T-0008 — Windows Execution Backend security spec
+- Owner: claude1 | Status: ASSIGNED | Priority: NORMAL
+- Branch: task/exec-spec | Commit: -
+- Files: docs/EXECUTION_SECURITY.md
+- Depends on: -
+- Description: Write docs/EXECUTION_SECURITY.md: which actions the Windows execution backend may perform, what needs user approval, allowlists, audit logging and the emergency stop contract.
+- Acceptance: Spec reviewed by the user; every risky action class has an approval rule.
+- Test criteria: review checklist
