@@ -1,6 +1,6 @@
 # Windows Execution Backend — Güvenlik Spesifikasyonu (T-0008)
 
-Durum: **taslak, kullanıcı onayı bekliyor.** T-0009 (uygulama) bu belge onaylanmadan başlamaz.
+Durum: **ONAYLANDI (2026-10-31, kullanıcı).** T-0009 (uygulama) bu belgeye göre, T-0002 bittikten sonra başlar.
 
 ## 1. İlkeler
 1. **Varsayılan: yasak.** Listede olmayan hiçbir eylem çalışmaz.
@@ -69,7 +69,7 @@ Her eylem için: zaman, isteyen ajan, sınıf, eylem özeti, onay kimliği, sonu
 5. Denetim kaydında sır bulunmaz.
 6. Gerçek komutlar yerine sahte yürütücü (fake executor) ile test edilir; gerçek Windows testi yapılmadıysa rapor bunu açıkça yazar.
 
-## 9. Kullanıcıdan beklenen kararlar
-1. `git commit` ve `git push` için tek seferlik "bu oturum için izin ver" modu istiyor musun, yoksa push her zaman ayrı onay mı olsun? (Öneri: commit otomatik, push her zaman onaylı.)
-2. Paket kurulumlarında aynı paketi bir kez onaylayınca tekrar sormasın mı? (Öneri: proje başına bir kez, sürüm değişirse tekrar sorulur.)
-3. İzinli ağ alan adları: `pypi.org`, `files.pythonhosted.org`, `github.com`, `pub.dev`, `registry.npmjs.org` yeterli mi?
+## 9. Onaylanan kararlar (2026-10-31)
+1. `git commit` otomatik; `git push` her zaman ayrı onaylıdır.
+2. Aynı paket/sürüm proje başına bir kez onaylanır; sürüm değişirse yeniden sorulur.
+3. İzinli ağ alan adları: `pypi.org`, `files.pythonhosted.org`, `github.com`, `pub.dev`, `registry.npmjs.org`. Diğerleri onay ister.

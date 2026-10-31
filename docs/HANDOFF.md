@@ -22,8 +22,8 @@ Gerçek cihaz testi yapılmadı.
 ## İş dağılımı (hepsi aynı anda çalışır, klasörler ayrıdır)
 | Ajan | Görevler | Sahip olduğu klasörler | Dal |
 |---|---|---|---|
-| claude1 | T-0006 entegrasyon, T-0008 yürütme güvenliği spesifikasyonu | `scripts/`, `docs/`, `*.bat`, `hub/`, `tasks/` | `task/integration`, `task/exec-spec` |
-| claude2 | T-0001 doğrulama → T-0002 → T-0003 → T-0009 (T-0002 ve T-0008 bitince) | `backend/` | `task/backend-core`, `task/engine-agents`, `task/orchestrator`, `task/execution` |
+| claude1 | T-0006 entegrasyon, T-0008 yürütme güvenliği spesifikasyonu (onaylandı, `docs/EXECUTION_SECURITY.md`) | `scripts/`, `docs/`, `*.bat`, `hub/`, `tasks/` | `task/integration`, `task/exec-spec` |
+| claude2 | T-0001 doğrulama → T-0002 → T-0003 → T-0009 (T-0002 bitince; T-0008 onaylandı) | `backend/` | `task/backend-core`, `task/engine-agents`, `task/orchestrator`, `task/execution` |
 | claude3 | T-0004 Flutter, T-0005 Web panel | `mobile/`, `web/`, `desktop/` | `task/mobile-agents`, `task/web-panel` |
 | gemini | T-0007 logo, ikon, palet | `assets/` | `task/assets` |
 
