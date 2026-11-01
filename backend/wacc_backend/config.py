@@ -16,6 +16,8 @@ class Settings:
     db_path: Path
     token_file: Path
     token_override: Optional[str]
+    user_token_override: Optional[str]
+    exec_roots: tuple
 
 
 def load_settings(env: Optional[Mapping[str, str]] = None) -> Settings:
@@ -34,4 +36,6 @@ def load_settings(env: Optional[Mapping[str, str]] = None) -> Settings:
         db_path=Path(env.get("WACC_BACKEND_DB") or data_dir / "backend.db"),
         token_file=data_dir / "backend_token.txt",
         token_override=env.get("WACC_BACKEND_TOKEN") or None,
+        user_token_override=env.get("WACC_BACKEND_USER_TOKEN") or None,
+        exec_roots=tuple(Path(r) for r in env.get("WACC_EXEC_ROOTS", str(ROOT)).split(os.pathsep) if r),
     )

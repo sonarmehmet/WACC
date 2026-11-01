@@ -27,7 +27,7 @@ echo [WACC] Communication Hub hazirlaniyor...
 ".venv\Scripts\python.exe" -m wacc_hub init
 ".venv\Scripts\python.exe" -m wacc_hub seed >nul
 
-echo [WACC] Backend ayri pencerede baslatiliyor...
+echo [WACC] Backend ayri pencerede baslatiliyor (ONAY TOKEN'I o pencerede yazar, kimseyle paylasma).
 start "WACC Backend" "%~dp0scripts\run_backend.bat"
 
 echo [WACC] Web panel ayri pencerede baslatiliyor: http://127.0.0.1:8780

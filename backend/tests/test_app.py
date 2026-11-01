@@ -21,14 +21,18 @@ class AppTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         s = load_settings({"WACC_DATA_DIR": self.tmp.name})
         from wacc_backend.orchestrator import MockProvider
-        self.client = TestClient(create_app(s, token="secret", providers=[MockProvider()]))
+        from wacc_backend.execution.executor import FakeExecutor
+        self.fake = FakeExecutor()
+        self.client = TestClient(create_app(s, token="secret", providers=[MockProvider()], executor=self.fake,
+                                            user_token="human"))
+        self.u = {"X-WACC-Token": "human"}
         self.h = {"X-WACC-Token": "secret"}
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def test_health_public_rest_protected(self):
-        self.assertEqual(self.client.get("/health").json()["schema_version"], 3)
+        self.assertEqual(self.client.get("/health").json()["schema_version"], 4)
         self.assertEqual(self.client.get("/projects").status_code, 401)
         self.assertEqual(self.client.get("/projects", headers={"X-WACC-Token": "nope"}).status_code, 401)
 
@@ -86,6 +90,33 @@ class AppTests(unittest.TestCase):
         bad = self.client.post("/memory", headers=h, json={"content": "ghp_" + "a" * 24})
         self.assertEqual(bad.status_code, 400)
         self.assertTrue(self.client.post(f"/memory/{mid}/archive", headers=h).json()["archived"])
+
+    def test_execution_roles_and_flow(self):
+        h, u = self.h, self.u
+        self.assertEqual(self.client.post("/exec", json={"agent": "a", "action": {}}).status_code, 401)
+        r = self.client.post("/exec", headers=h, json={"agent": "claude2", "action": {"type": "write_file", "path": "x.txt", "content": "hi"}})
+        self.assertEqual(r.json()["status"], "OK")  # root defaults to the repo folder
+        d = self.client.post("/exec", headers=h, json={"agent": "claude2", "action": {"type": "read_file", "path": "data/tokens.json"}})
+        self.assertEqual(d.json()["status"], "DENIED")
+        req = {"agent": "claude2", "action": {"type": "delete_path", "path": "x.txt"}}
+        aid = self.client.post("/exec", headers=h, json=req).json()["approval_id"]
+        self.assertEqual(self.client.post(f"/exec/approvals/{aid}/approve", headers=h).status_code, 403)  # agent token cannot approve
+        self.assertEqual(self.client.post(f"/exec/approvals/{aid}/approve").status_code, 401)
+        self.assertEqual(self.client.post(f"/exec/approvals/{aid}/approve", headers=u).json()["status"], "APPROVED")
+        done = self.client.post("/exec", headers=h, json={**req, "approval_id": aid})
+        self.assertEqual(done.json()["status"], "OK")
+        self.assertEqual(self.client.post("/exec", headers=h, json={**req, "approval_id": aid}).status_code, 403)
+        self.assertEqual(self.client.get("/exec/audit", headers=h).json()[0]["agent"], "claude2")
+        self.assertEqual(self.client.get("/exec/approvals/999", headers=h).status_code, 404)
+
+    def test_execution_stop_and_resume(self):
+        h, u = self.h, self.u
+        self.assertTrue(self.client.post("/exec/stop", headers=h, json={"reason": "test"}).json()["emergency_stop"])
+        blocked = self.client.post("/exec", headers=h, json={"agent": "claude2", "action": {"type": "read_file", "path": "README.md"}})
+        self.assertEqual(blocked.status_code, 423)
+        self.assertEqual(self.client.post("/exec/resume", headers=h).status_code, 403)  # only the user lifts it
+        self.assertFalse(self.client.post("/exec/resume", headers=u).json()["emergency_stop"])
+        self.assertFalse(self.client.get("/exec/status", headers=h).json()["emergency_stop"])
 
 
 if __name__ == "__main__":

@@ -18,7 +18,8 @@ Bu dosya Git'tedir, çünkü Hub veritabanı (`data/hub.db`) kullanıcının bil
 | Web panel T-0005 (`web/serve.py` + `web/public`, claude3) | Birleştirildi (main) | claude1 inceledi: yalnızca localhost, Host/Origin kontrolü, innerHTML yok, CSP var. Testlerin çoğu gerçek Hub (fastapi) gerektirdiği için burada atlandı |
 | Task Engine + Agent Manager T-0002 (`backend/wacc_backend/engine.py`, `agents.py`, storage migration v2, `/jobs`, `/agents`, `/engine/*` rotaları) | Yazıldı (claude1, claude2 henüz bağlanmadığı için) | 54 test geçti (hub+backend); FastAPI rotaları **çalıştırılmadı** (fastapi sandbox'ta kurulamıyor) |
 | AI Orchestrator + Memory T-0003 (`orchestrator.py`, `memory.py`, migration v3, `/ai/*`, `/memory/*`) | Yazıldı (claude1, stand-in) | 78 test geçti (hub+backend+web); gerçek yerel/bulut model ile **denenmedi**, FastAPI rotaları **çalıştırılmadı** |
-| Flutter, Desktop, Yürütme backend'i (T-0009) | Yazılmadı | — |
+| Yürütme backend'i T-0009 (`backend/wacc_backend/execution/`, `/exec/*`, migration v4, paylaşımlı `data/EMERGENCY_STOP`) | Yazıldı (claude1) | Testler geçti (aşağıda sayı); gerçek süreç sonlandırma Linux'ta test edildi, **Windows'ta denenmedi** |
+| Flutter, Desktop, onay ekranları | Yazılmadı | — |
 
 ### İnceleme notu (claude1 → claude3, T-0005)
 - Panel token'ı `localStorage`'da saklıyor. Localhost için kabul edildi, ama `user` tokenı onay verebilen tek token; panelde "token'ı hatırla" varsayılanı **kapalı** olmalı (sonraki iş, küçük).
@@ -55,7 +56,10 @@ Not: T-0007..T-0009 `python -m wacc_hub seed` ile Hub'a eklenir (`start_wacc.bat
 - `task/integration` dalında: ortam kontrolü, başlatma/yedek betikleri, entegrasyon ve inceleme. Gelen `CODE_READY` mesajlarını incele, `main`'e birleştir.
 
 ## Önemli: claude2 için not
-claude1, claude2 bağlanmadığı için **T-0002 (Task Engine + Agent Manager) ve T-0003'ü (AI Orchestrator + Memory) yazdı** (`task/engine-agents`, `main`'de). claude2 geldiğinde T-0002/T-0003'ü baştan yazmasın: kodu incelesin, Windows'ta çalıştığını doğrulasın, eksik/hata varsa düzeltsin, sonra T-0009'a (yürütme backend'i, `docs/EXECUTION_SECURITY.md`) geçsin. Task Engine'in `pause` bayrağı Hub'ın `emergency_stop` bayrağından ayrıdır; T-0009 (yürütme) her eylemden önce **ikisini de** kontrol etmeli.
+claude1, claude2 bağlanmadığı için **T-0002, T-0003 ve T-0009'u (Task Engine/Agent Manager, AI Orchestrator/Memory, Yürütme backend'i) yazdı** (`task/engine-agents`, `main`'de). claude2 geldiğinde T-0002/T-0003'ü baştan yazmasın: kodu incelesin, Windows'ta çalıştığını doğrulasın, eksik/hata varsa düzeltsin, sonra T-0009'a (yürütme backend'i, `docs/EXECUTION_SECURITY.md`) geçsin. Task Engine'in `pause` bayrağı Hub'ın `emergency_stop` bayrağından ayrıdır; T-0009 (yürütme) her eylemden önce **ikisini de** kontrol etmeli.
+
+## claude3 için yeni API (onay akışı)
+Backend `http://127.0.0.1:8800`. Onay bekleyen eylemler: `GET /exec/approvals?status=PENDING`; karar: `POST /exec/approvals/{id}/approve|deny` — **kullanıcı token'ı** ister (backend penceresinde yazar, diske yazılmaz; panelde "onay token'ı" alanına kullanıcı kendisi girer, `localStorage`'a kaydedilmez). Acil durdurma: `POST /exec/stop` / `POST /exec/resume` (resume yalnızca kullanıcı). Web paneline "Onaylar" sekmesi ve Flutter'a onay ekranı eklenmeli (T-0004/T-0005 devamı).
 
 ## Açık konular
 - Bu oturumlar Hub'a ancak aynı bilgisayardan (CLI) ya da kimlik doğrulamalı tünelle erişir. Buluttaki oturum `127.0.0.1`'e ulaşamaz.

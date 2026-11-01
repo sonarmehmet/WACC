@@ -241,6 +241,14 @@ class SafetyTests(HubTestCase):
         self.assertFalse(self.hub.emergency_status())
         self.hub.send_message("claude2", "claude3", "STATUS_UPDATE", "ok again")
 
+    def test_stop_file_is_shared_with_the_backend(self):
+        stop_file = Path(self.hub.db_path).parent / "EMERGENCY_STOP"
+        self.assertFalse(stop_file.exists())
+        self.hub.emergency_stop("user", "test")
+        self.assertTrue(stop_file.exists())
+        self.hub.resume("user")
+        self.assertFalse(stop_file.exists())
+
     def test_audit_log_records_actions(self):
         self.hub.send_message("claude2", "claude3", "STATUS_UPDATE", "x")
         self.hub.acquire_lock("claude2", "a")

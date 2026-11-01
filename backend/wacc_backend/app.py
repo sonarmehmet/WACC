@@ -10,13 +10,17 @@ from . import __version__
 from .agents import AgentManager
 from .engine import TaskEngine
 from .memory import Memory
+from .execution.approvals import Approvals
+from .execution.executor import Executor, RealExecutor
+from .execution.service import EmergencyStop, ExecutionService
 from .orchestrator import Orchestrator, Provider, build_providers
 from .config import Settings, load_settings
-from .security import get_or_create_token, token_matches
+from .security import get_or_create_token, get_or_create_user_token, token_matches
 from .storage import Storage, StorageError
 
 STATUS_MAP = {"NOT_FOUND": 404, "DUPLICATE": 409, "FORBIDDEN": 403, "BAD_STATE": 409,
-              "PROJECT_ARCHIVED": 409, "DISABLED": 409, "BUDGET_EXCEEDED": 429,
+              "PROJECT_ARCHIVED": 409, "DISABLED": 409, "BUDGET_EXCEEDED": 429, "EMERGENCY_STOP": 423,
+              "NOT_APPROVED": 403, "HASH_MISMATCH": 403,
               "NO_PROVIDER": 503, "ALL_FAILED": 502}
 
 
@@ -80,6 +84,16 @@ class CompleteRequest(BaseModel):
     max_tokens: int = 1024
 
 
+class ExecIn(BaseModel):
+    agent: str
+    action: dict
+    approval_id: Optional[int] = None
+
+
+class StopIn(BaseModel):
+    reason: str = "manual stop"
+
+
 class BudgetIn(BaseModel):
     usd: float
 
@@ -92,7 +106,8 @@ class MemoryIn(BaseModel):
 
 
 def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] = None,
-               token: Optional[str] = None, providers: Optional[List[Provider]] = None) -> FastAPI:
+               token: Optional[str] = None, providers: Optional[List[Provider]] = None,
+               executor: Optional[Executor] = None, user_token: Optional[str] = None) -> FastAPI:
     settings = settings or load_settings()
     storage = storage or Storage(settings.db_path)
     engine = TaskEngine(storage)
@@ -100,11 +115,24 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
     orchestrator = Orchestrator(storage, providers if providers is not None else build_providers(os.environ))
     memory = Memory(storage)
     expected = token or get_or_create_token(settings)
+    user_expected = user_token or get_or_create_user_token(settings)
+    approvals = Approvals(storage)
+    stop = EmergencyStop(settings.data_dir, engine, approvals)
+    execution = ExecutionService(storage, settings.exec_roots, executor or RealExecutor(settings.exec_roots), stop, approvals)
     app = FastAPI(title="WACC Backend", version=__version__)
 
-    def auth(x_wacc_token: str = Header(default="")):
-        if not token_matches(expected, x_wacc_token):
-            raise HTTPException(status_code=401, detail="Invalid or missing X-WACC-Token")
+    def auth(x_wacc_token: str = Header(default="")) -> str:
+        """Returns the caller's role: 'user' (human, can approve) or 'agent'."""
+        if token_matches(user_expected, x_wacc_token):
+            return "user"
+        if token_matches(expected, x_wacc_token):
+            return "agent"
+        raise HTTPException(status_code=401, detail="Invalid or missing X-WACC-Token")
+
+    def user_only(role: str = Depends(auth)) -> str:
+        if role != "user":
+            raise HTTPException(status_code=403, detail={"code": "FORBIDDEN", "message": "Only the user token may do this"})
+        return role
 
     def run(fn, *args, **kwargs):
         try:
@@ -244,5 +272,45 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
     @app.post("/memory/{memory_id}/archive", dependencies=[Depends(auth)])
     def memory_archive(memory_id: int):
         return run(memory.archive, memory_id)
+
+    # ------------------------------------------------------- execution backend
+    @app.post("/exec", dependencies=[Depends(auth)])
+    def exec_submit(body: ExecIn):
+        return run(execution.submit, body.agent, body.action, body.approval_id)
+
+    @app.get("/exec/approvals", dependencies=[Depends(auth)])
+    def exec_approvals(status: Optional[str] = None, limit: int = 100):
+        return run(approvals.list, status, limit)
+
+    @app.get("/exec/approvals/{approval_id}", dependencies=[Depends(auth)])
+    def exec_approval(approval_id: int):
+        item = approvals.get(approval_id)
+        if not item:
+            raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Approval not found"})
+        return item
+
+    @app.post("/exec/approvals/{approval_id}/approve", dependencies=[Depends(user_only)])
+    def exec_approve(approval_id: int):
+        return run(approvals.decide, approval_id, True, "user")
+
+    @app.post("/exec/approvals/{approval_id}/deny", dependencies=[Depends(user_only)])
+    def exec_deny(approval_id: int):
+        return run(approvals.decide, approval_id, False, "user")
+
+    @app.get("/exec/audit", dependencies=[Depends(auth)])
+    def exec_audit(limit: int = 200):
+        return approvals.audit_log(limit)
+
+    @app.post("/exec/stop", dependencies=[Depends(auth)])
+    def exec_stop(body: StopIn):
+        return stop.trigger(body.reason)
+
+    @app.post("/exec/resume", dependencies=[Depends(user_only)])
+    def exec_resume():
+        return stop.clear()
+
+    @app.get("/exec/status", dependencies=[Depends(auth)])
+    def exec_status():
+        return {"emergency_stop": stop.active(), "roots": [str(r) for r in settings.exec_roots]}
 
     return app

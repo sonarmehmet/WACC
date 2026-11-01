@@ -9,6 +9,7 @@ import posixpath
 import sqlite3
 import time
 import uuid
+from pathlib import Path
 from contextlib import contextmanager
 
 from . import db
@@ -624,6 +625,10 @@ class Hub:
         }
 
     # ----------------------------------------------------- emergency / audit
+    def _stop_file(self):
+        """Shared stop switch next to the database (default data/EMERGENCY_STOP); the backend checks it too."""
+        return Path(self.db_path).parent / "EMERGENCY_STOP"
+
     def emergency_status(self):
         r = self.query_one("SELECT value FROM system_flags WHERE key='emergency_stop'")
         return bool(r and r["value"] == "1")
@@ -633,6 +638,7 @@ class Hub:
             raise HubError("FORBIDDEN", "Only claude1 or the user can trigger an emergency stop")
         with self.tx() as conn:
             conn.execute("UPDATE system_flags SET value='1' WHERE key='emergency_stop'")
+            self._stop_file().write_text(reason[:200], encoding="utf-8")  # the backend watches this file
             self._audit(conn, actor, "EMERGENCY_STOP", reason)
             self._send(conn, actor, BROADCAST, "SYSTEM_ALERT", "EMERGENCY STOP",
                        f"All agents must stop work immediately. Reason: {reason}",
@@ -643,6 +649,8 @@ class Hub:
             raise HubError("FORBIDDEN", "Only the user can lift an emergency stop")
         with self.tx() as conn:
             conn.execute("UPDATE system_flags SET value='0' WHERE key='emergency_stop'")
+            if self._stop_file().exists():
+                self._stop_file().unlink()
             self._audit(conn, actor, "RESUME", "")
             self._send(conn, actor, BROADCAST, "SYSTEM_ALERT", "Emergency stop lifted",
                        "Work may resume. Run session-start first.", escalate=False)

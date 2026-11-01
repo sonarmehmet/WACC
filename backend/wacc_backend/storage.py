@@ -86,6 +86,39 @@ MIGRATIONS = [
     CREATE INDEX idx_memories_project ON memories(project_id, archived);
     INSERT INTO engine_flags(key, value) VALUES ('daily_budget_usd', '1.00');
     """,
+    # version 4: execution approvals and the append-only execution audit trail
+    """
+    CREATE TABLE approvals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        requested_by TEXT NOT NULL,
+        action_class TEXT NOT NULL,
+        action TEXT NOT NULL,
+        action_hash TEXT NOT NULL,
+        risk_summary TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'PENDING',
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        decided_by TEXT,
+        decided_at TEXT,
+        executed_at TEXT
+    );
+    CREATE INDEX idx_approvals_status ON approvals(status, expires_at);
+    CREATE TABLE exec_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts TEXT NOT NULL,
+        agent TEXT NOT NULL,
+        action_class TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        approval_id INTEGER,
+        outcome TEXT NOT NULL,
+        detail TEXT NOT NULL DEFAULT '',
+        duration_ms INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TRIGGER exec_audit_no_update BEFORE UPDATE ON exec_audit
+    BEGIN SELECT RAISE(ABORT, 'exec_audit is append-only'); END;
+    CREATE TRIGGER exec_audit_no_delete BEFORE DELETE ON exec_audit
+    BEGIN SELECT RAISE(ABORT, 'exec_audit is append-only'); END;
+    """,
 ]
 PROJECT_STATUSES = ("ACTIVE", "PAUSED", "ARCHIVED")
 
@@ -209,4 +242,14 @@ class Storage:
 
 
 def _split(script: str):
-    return [s.strip() for s in script.split(";") if s.strip()]
+    """Split a migration into statements, keeping CREATE TRIGGER ... BEGIN ...; END; blocks whole."""
+    statements, buf = [], ""
+    for piece in script.split(";"):
+        buf += piece + ";"
+        if sqlite3.complete_statement(buf):
+            if buf.strip(";").strip():
+                statements.append(buf.strip())
+            buf = ""
+    if buf.strip(";").strip():
+        statements.append(buf.strip())
+    return statements

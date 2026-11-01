@@ -1,6 +1,6 @@
 # Windows Execution Backend — Güvenlik Spesifikasyonu (T-0008)
 
-Durum: **ONAYLANDI (2026-10-31, kullanıcı).** T-0009 (uygulama) bu belgeye göre, T-0002 bittikten sonra başlar.
+Durum: **ONAYLANDI (2026-10-31, kullanıcı).** T-0009 bu belgeye göre `backend/wacc_backend/execution/` altında uygulandı (claude1); ayrıntılı sınırlar `backend/README.md`'de.
 
 ## 1. İlkeler
 1. **Varsayılan: yasak.** Listede olmayan hiçbir eylem çalışmaz.
@@ -41,7 +41,7 @@ Sınıfı belirlenemeyen eylem `SYSTEM_CHANGE` sayılır.
 
 Durumlar: `PENDING → APPROVED | DENIED | EXPIRED → EXECUTED`.
 
-- Onayı **yalnızca `user` tokenı** verir (Ajanlar ekranından). Hiçbir ajan, hiçbir mesajla onay veremez.
+- Onayı **yalnızca `user` tokenı** verir (Ajanlar ekranından). Bu token diske yazılmaz, backend her açılışta üretip konsolda gösterir. Hiçbir ajan, hiçbir mesajla onay veremez.
 - Onay, istenen eylemin `action_hash` değerine bağlıdır; eylem bir karakter değişirse onay geçersizdir.
 - Tek kullanımlıktır; varsayılan geçerlilik 10 dakikadır.
 - Kullanıcıya gösterilen özet ham komutu ve etkilenecek yolları içerir; ajanın yazdığı açıklama yalnızca yardımcı metindir.

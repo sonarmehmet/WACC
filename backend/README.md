@@ -38,5 +38,23 @@ Yönlendirme: önce yerel (ücretsiz), başarısız olursa bulut. Bulut çağrı
 
 Memory: gizli anahtar benzeri içerik reddedilir; kayıtlar silinmez, arşivlenir.
 
-## Next (T-0009)
-Windows Execution Backend (`docs/EXECUTION_SECURITY.md`'ye göre). Add new tables as new entries in `storage.MIGRATIONS`; never edit an existing migration.
+## Yürütme backend'i (T-0009) — `docs/EXECUTION_SECURITY.md`
+Her makine eylemi tek kapıdan geçer: `POST /exec` → acil durdurma kontrolü → sınıflandırma → reddet / onay iste / çalıştır → denetim kaydı.
+
+- Eylem türleri: `read_file`, `list_dir`, `write_file`, `delete_path` (silmez, `_to_delete/` altına taşır), `run` (`argv` listesi, shell yok), `http_get`.
+- Sonuç durumları: `OK`, `ERROR`, `KILLED`, `DENIED`, `APPROVAL_REQUIRED` (+ `approval_id`).
+- Onay: `GET /exec/approvals`, `POST /exec/approvals/{id}/approve|deny` **yalnızca kullanıcı token'ıyla**. Onay eylemin SHA-256'sına bağlıdır, tek kullanımlıktır, 10 dakikada dolar. Ajan onaydan sonra aynı eylemi `approval_id` ile tekrar gönderir.
+- Kullanıcı token'ı **diske yazılmaz**: backend her açılışta yeni üretir ve yalnızca konsol penceresinde gösterir (ajanlar aynı bilgisayarda çalıştığı için dosyadan okuyup kendi kendine onay veremesin diye). Sabitlemek istersen `WACC_BACKEND_USER_TOKEN` (env).
+- Acil durdurma: `POST /exec/stop` (ajan veya kullanıcı), `POST /exec/resume` (yalnızca kullanıcı). Hub'ın acil durdurması `data/EMERGENCY_STOP` dosyasıyla aynı anahtardır; ikisinden biri açıksa eylemler reddedilir, çalışan süreçler süreç ağacıyla birlikte sonlandırılır.
+- İzinli kökler: `WACC_EXEC_ROOTS` (varsayılan yalnızca proje klasörü). `data/`, `.env`, `*.pem`, token dosyaları ve `.git/` ajanlara kapalıdır.
+- `GET /exec/audit`: yalnızca eklenir (veritabanı tetikleyicileri güncelleme/silmeyi engeller), sırlar maskelenir.
+
+Bilinen sınırlar (dürüst not):
+1. `python -m pytest` otomatik izinlidir ve proje içindeki test dosyaları kod çalıştırır; bir ajan önce test dosyası yazıp sonra çalıştırarak kullanıcı yetkisiyle kod çalıştırabilir. Belgedeki izin listesi bunu kabul ediyor; istenirse `pytest` de onaya bağlanır.
+2. Ajan kimliği (`agent` alanı) istemcinin beyanıdır; tüm ajanlar aynı ajan token'ını paylaşır. Onay yine de eylemin hash'ine bağlıdır.
+3. Backend yalnızca kendisi üzerinden gelen eylemleri denetler. Ajanın kendi shell'i (ör. Claude Code oturumu) bu kapıdan geçmez.
+4. Windows'ta (taskkill ile süreç ağacı sonlandırma, farklı sürücü, junction) denenmedi; testler Linux'ta çalıştı.
+
+## Next
+Web panelde onay ekranı (claude3), Flutter onay ekranı, ajanların `/exec`'i kullanması.
+Add new tables as new entries in `storage.MIGRATIONS`; never edit an existing migration.

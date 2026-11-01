@@ -10,7 +10,20 @@ from .config import Settings
 def get_or_create_token(settings: Settings) -> str:
     if settings.token_override:
         return settings.token_override
-    path = settings.token_file
+    return _file_token(settings.token_file)
+
+
+def get_or_create_user_token(settings: Settings) -> str:
+    """Token only the human holds; it alone may approve actions.
+
+    It is NEVER written to disk: agents run on the same computer and could read a file. Unless the
+    user pins one via WACC_BACKEND_USER_TOKEN, a fresh token is generated at each start and shown
+    once in the console window.
+    """
+    return settings.user_token_override or secrets.token_urlsafe(32)
+
+
+def _file_token(path) -> str:
     if path.exists():
         value = path.read_text(encoding="utf-8").strip()
         if value:
