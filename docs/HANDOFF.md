@@ -9,21 +9,23 @@ Bu dosya Git'tedir, çünkü Hub veritabanı (`data/hub.db`) kullanıcının bil
 - Commit mesajı sonuna `Co-Authored-By` satırı eklenir; sır/anahtar asla commit edilmez.
 
 ## Bitenler (doğrulama durumuyla)
+Otomatik testler GitHub Actions'ta her push'ta **Linux ve Windows**'ta çalışır (`.github/workflows/tests.yml`); sonuçlar için `gh run list` veya Actions sekmesi. Son durum: Hub 33, backend 98 (Windows'ta 99), web panel 18 test geçiyor; ayrıca **gerçek Windows'ta `start_wacc.bat` çalıştırılıp smoke test 10/10 geçti** (Hub + backend + web panel ayağa kalkıyor).
+
 | Parça | Durum | Doğrulama |
 |---|---|---|
-| Hub (SQLite WAL, mesaj, görev, kilit, karar, checkpoint, acil durdurma) | Bitti | 26 unit test geçti (Linux) |
-| Hub FastAPI + token auth | Yazıldı | **Çalıştırılmadı**: sandbox'ta fastapi kurulamadı, 6 API testi atlandı |
-| Backend çekirdeği T-0001 (config, token, storage, /projects) | Yazıldı | 9 test geçti, 2 API testi atlandı; **FastAPI kısmı çalıştırılmadı** |
-| `start_wacc.bat`, `backup`, `stop`, `resume`, `check_env.ps1`, `run_backend.bat` | Yazıldı | **Windows'ta hiç çalıştırılmadı** |
-| Web panel T-0005 (`web/serve.py` + `web/public`, claude3) | Birleştirildi (main) | claude1 inceledi: yalnızca localhost, Host/Origin kontrolü, innerHTML yok, CSP var. Testlerin çoğu gerçek Hub (fastapi) gerektirdiği için burada atlandı |
-| Task Engine + Agent Manager T-0002 (`backend/wacc_backend/engine.py`, `agents.py`, storage migration v2, `/jobs`, `/agents`, `/engine/*` rotaları) | Yazıldı (claude1, claude2 henüz bağlanmadığı için) | 54 test geçti (hub+backend); FastAPI rotaları **çalıştırılmadı** (fastapi sandbox'ta kurulamıyor) |
-| AI Orchestrator + Memory T-0003 (`orchestrator.py`, `memory.py`, migration v3, `/ai/*`, `/memory/*`) | Yazıldı (claude1, stand-in) | 78 test geçti (hub+backend+web); gerçek yerel/bulut model ile **denenmedi**, FastAPI rotaları **çalıştırılmadı** |
-| Yürütme backend'i T-0009 (`backend/wacc_backend/execution/`, `/exec/*`, migration v4, paylaşımlı `data/EMERGENCY_STOP`) | Yazıldı (claude1) | Testler geçti (aşağıda sayı); gerçek süreç sonlandırma Linux'ta test edildi, **Windows'ta denenmedi** |
-| Flutter, Desktop, onay ekranları | Yazılmadı | — |
+| Hub (SQLite WAL, mesaj, görev, kilit, karar, checkpoint, acil durdurma, FastAPI + token) | Bitti | CI: Linux + Windows |
+| Backend çekirdeği T-0001 (config, token, storage, /projects) | Bitti | CI: Linux + Windows |
+| Task Engine + Agent Manager T-0002 (`/jobs`, `/agents`, `/engine/*`) | Bitti (claude1, claude2 yokken) | CI: Linux + Windows |
+| AI Orchestrator + Memory T-0003 (`/ai/*`, `/memory/*`) | Bitti (claude1, stand-in) | CI; **gerçek yerel/bulut model ile denenmedi** (sahte HTTP sunucuyla test edildi) |
+| Yürütme backend'i T-0009 (`/exec/*`, onay akışı, denetim, paylaşımlı `data/EMERGENCY_STOP`) | Bitti (claude1) | CI: gerçek süreç ağacı sonlandırma Windows'ta da geçti; sınırlar için `backend/README.md` |
+| Web panel T-0005 (claude3) | main'de | claude1 inceledi; CI: Linux + Windows |
+| `start_wacc.bat` + smoke test | Bitti | **Gerçek Windows'ta uçtan uca geçti**. Bulunan hata: .bat dosyaları LF satır sonuyla yazılmıştı, cmd.exe sessizce çıkıyordu; `.gitattributes` ile CRLF'ye zorlandı |
+| `backup_wacc.bat`, `stop_wacc.bat`, `resume_wacc.bat`, `check_env.ps1` | Yazıldı | **Henüz denenmedi** |
+| Flutter (T-0004), onay ekranları (web + Flutter), Desktop, logo/ikon (T-0007) | Yazılmadı | — |
 
 ### İnceleme notu (claude1 → claude3, T-0005)
-- Panel token'ı `localStorage`'da saklıyor. Localhost için kabul edildi, ama `user` tokenı onay verebilen tek token; panelde "token'ı hatırla" varsayılanı **kapalı** olmalı (sonraki iş, küçük).
-- `start_wacc.bat` henüz paneli başlatmıyor; entegrasyon (claude1) ekleyecek.
+- Panel token'ı `localStorage`'da saklıyor. Localhost için kabul edildi, ama onay verebilen **kullanıcı token'ı için kayıt kapalı olmalı** (kullanıcı her seferinde girer).
+- Panelin `/api/*` vekili yalnızca Hub'a gidiyor; onay ekranı için backend (8800) vekili de gerekecek.
 
 Gerçek cihaz testi yapılmadı.
 

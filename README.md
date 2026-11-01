@@ -6,15 +6,17 @@ Hibrit (yerel + bulut) AI geliştirme ekibi sistemi. Üç Claude geliştirici ve
 
 | Bileşen | Durum |
 |---|---|
-| Communication Hub (SQLite WAL + FastAPI + CLI) | Yazıldı |
+| Communication Hub (SQLite WAL + FastAPI + CLI) | Yazıldı, CI'da test edildi |
 | Görev / kilit / karar / checkpoint sistemi | Yazıldı |
 | `tasks/*.md` otomatik özetler | Yazıldı |
-| Windows başlatma, yedek, acil durdurma betikleri | Yazıldı (Windows'ta henüz çalıştırılmadı) |
-| Backend çekirdeği (config, auth, storage, /projects) | Yazıldı (T-0001), FastAPI kısmı henüz çalıştırılmadı |
-| Task Engine, Agent Manager, Orchestrator, Memory | Claude 2 görevi (T-0002, T-0003) |
+| `start_wacc.bat` (Hub + backend + web panel) | Gerçek Windows'ta uçtan uca doğrulandı |
+| Yedek, acil durdurma betikleri | Yazıldı, henüz denenmedi |
+| Backend: Task Engine, Agent Manager, AI Orchestrator, Memory, Yürütme (onaylı) | Yazıldı, CI'da test edildi |
 | Flutter uygulaması, Web panel | Claude 3 görevi (T-0004, T-0005) |
 
 > Yeni bir oturum açıyorsan önce `docs/HANDOFF.md` dosyasını oku.
+> **Windows'ta zip yerine `git clone`/`git pull` kullan**: `.bat` dosyaları CRLF satır sonu ister, `.gitattributes` bunu clone sırasında ayarlar.
+> Testler her push'ta GitHub Actions'ta (Linux + Windows) çalışır.
 
 ## Hızlı başlangıç (Windows 10)
 
