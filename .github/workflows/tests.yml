@@ -52,6 +52,15 @@ jobs:
           python -m venv diag_venv
           echo venv exit code: %errorlevel%
           diag_venv\Scripts\python.exe --version
+      - name: Trace the first half of start_wacc.bat (echo on)
+        shell: powershell
+        continue-on-error: true
+        run: |
+          $lines = Get-Content start_wacc.bat
+          $cut = ($lines | Select-String 'Backend ayri pencerede').LineNumber - 1
+          $lines[0..($cut-1)] | ForEach-Object { $_ -replace '^@echo off','@echo on' } | Set-Content -Encoding ASCII trace.bat
+          cmd.exe /c trace.bat 2>&1
+          Write-Host "trace exit code: $LASTEXITCODE"
       - name: Start WACC with start_wacc.bat
         shell: powershell
         run: |
