@@ -10,7 +10,7 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-HUB, BACKEND = "http://127.0.0.1:8765", "http://127.0.0.1:8800"
+HUB, BACKEND, PANEL = "http://127.0.0.1:8765", "http://127.0.0.1:8800", "http://127.0.0.1:8780"
 results = []
 
 
@@ -66,6 +66,11 @@ def main():
     if btoken:
         s, _ = call(BACKEND + "/projects", btoken)
         check("backend /projects with token", s == 200, s)
+
+    s, body = call(PANEL + "/api/health")
+    check("web panel proxies the hub (/api/health)", s == 200 and isinstance(body, dict) and body.get("ok") is True, s)
+    s, _ = call(PANEL + "/api/inbox")
+    check("web panel passes the hub's 401 through", s == 401, s)
 
     print(f"\n{sum(results)}/{len(results)} checks passed")
     return 0 if all(results) else 1

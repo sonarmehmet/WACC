@@ -35,3 +35,45 @@ jobs:
         run: python -m pytest backend/tests -v
       - name: Web panel tests
         run: python -m pytest web/tests -v
+
+  windows-e2e:
+    # Runs the real start_wacc.bat on Windows and then the smoke test against the live services.
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Start WACC with start_wacc.bat
+        shell: powershell
+        run: |
+          Start-Process -FilePath cmd.exe -ArgumentList "/c","start_wacc.bat" -RedirectStandardOutput start.out.log -RedirectStandardError start.err.log -WindowStyle Hidden
+      - name: Wait for hub, backend and panel
+        shell: powershell
+        run: |
+          $urls = "http://127.0.0.1:8765/health","http://127.0.0.1:8800/health","http://127.0.0.1:8780/api/health"
+          $deadline = (Get-Date).AddSeconds(150)
+          $ready = $false
+          while ((Get-Date) -lt $deadline -and -not $ready) {
+            Start-Sleep -Seconds 3
+            $ready = $true
+            foreach ($u in $urls) {
+              try { $r = Invoke-WebRequest -UseBasicParsing -Uri $u -TimeoutSec 3; if ($r.StatusCode -ne 200) { $ready = $false } } catch { $ready = $false }
+            }
+          }
+          Write-Host "ready=$ready"
+          if (-not $ready) {
+            Write-Host "--- start.out.log"; Get-Content start.out.log -ErrorAction SilentlyContinue
+            Write-Host "--- start.err.log"; Get-Content start.err.log -ErrorAction SilentlyContinue
+            Get-Process | Where-Object { $_.ProcessName -like "python*" } | Format-Table Id,ProcessName,StartTime
+            exit 1
+          }
+      - name: Smoke test
+        run: python -X utf8 scripts/smoke_test.py
+      - name: Show start log on failure
+        if: failure()
+        shell: powershell
+        run: |
+          Get-Content start.out.log -ErrorAction SilentlyContinue
+          Get-Content start.err.log -ErrorAction SilentlyContinue
