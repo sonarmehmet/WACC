@@ -19,5 +19,10 @@ Listens on `127.0.0.1:8800`. Token: env `WACC_BACKEND_TOKEN`, or generated into 
 
 Projects are archived, never hard-deleted.
 
-## Next (T-0002, T-0003)
-Task Engine, Agent Manager, AI Orchestrator (provider interface + mock), Memory System. Add new tables as new entries in `storage.MIGRATIONS`; never edit an existing migration.
+- Task Engine: `POST /jobs`, `GET /jobs`, `GET /jobs/summary`, `POST /jobs/claim`, `POST /jobs/{id}/complete|fail|cancel`, `POST /engine/pause|resume`
+- Agent Manager: `GET/POST /agents`, `POST /agents/{name}/heartbeat`, `POST /agents/{name}/enabled`
+
+Job akışı: QUEUED → RUNNING → SUCCEEDED / FAILED (başarısızlıkta üstel bekleme ile yeniden deneme, `max_attempts` sonrası FAILED) / CANCELLED. Engine yalnızca iş kuyruğudur; gerçek komut çalıştırma Execution Backend'in (T-0009) işidir.
+
+## Next (T-0003)
+AI Orchestrator (provider interface + mock), Memory System. Add new tables as new entries in `storage.MIGRATIONS`; never edit an existing migration.

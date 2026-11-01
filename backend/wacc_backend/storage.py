@@ -21,6 +21,43 @@ MIGRATIONS = [
         updated_at TEXT NOT NULL
     );
     """,
+    # version 2: Task Engine (jobs) and Agent Manager (agent registry), engine flags
+    """
+    CREATE TABLE jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER REFERENCES projects(id),
+        kind TEXT NOT NULL,
+        title TEXT NOT NULL,
+        payload TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'QUEUED',
+        priority INTEGER NOT NULL DEFAULT 5,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 3,
+        run_after TEXT NOT NULL,
+        claimed_by TEXT,
+        result TEXT,
+        error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        started_at TEXT,
+        finished_at TEXT
+    );
+    CREATE INDEX idx_jobs_claim ON jobs(status, run_after, priority);
+    CREATE TABLE agent_registry (
+        name TEXT PRIMARY KEY,
+        role TEXT NOT NULL,
+        capabilities TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL DEFAULT 'OFFLINE',
+        current_job INTEGER,
+        last_seen TEXT,
+        registered_at TEXT NOT NULL
+    );
+    CREATE TABLE engine_flags (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    );
+    INSERT INTO engine_flags(key, value) VALUES ('paused', '0');
+    """,
 ]
 PROJECT_STATUSES = ("ACTIVE", "PAUSED", "ARCHIVED")
 
