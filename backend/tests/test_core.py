@@ -60,8 +60,8 @@ class StorageTests(unittest.TestCase):
         return cm.exception.code
 
     def test_migration_is_idempotent_and_wal(self):
-        self.assertEqual(self.db.schema_version(), 2)
-        self.assertEqual(Storage(self.db.db_path).schema_version(), 2)
+        self.assertEqual(self.db.schema_version(), 3)
+        self.assertEqual(Storage(self.db.db_path).schema_version(), 3)
         conn = sqlite3.connect(self.db.db_path)
         self.assertEqual(conn.execute("PRAGMA journal_mode").fetchone()[0].lower(), "wal")
         conn.close()

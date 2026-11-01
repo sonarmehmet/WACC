@@ -24,5 +24,19 @@ Projects are archived, never hard-deleted.
 
 Job akışı: QUEUED → RUNNING → SUCCEEDED / FAILED (başarısızlıkta üstel bekleme ile yeniden deneme, `max_attempts` sonrası FAILED) / CANCELLED. Engine yalnızca iş kuyruğudur; gerçek komut çalıştırma Execution Backend'in (T-0009) işidir.
 
-## Next (T-0003)
-AI Orchestrator (provider interface + mock), Memory System. Add new tables as new entries in `storage.MIGRATIONS`; never edit an existing migration.
+- AI Orchestrator: `POST /ai/complete` (`prefer`: local/cloud/auto), `GET /ai/providers`, `GET /ai/usage`, `POST /ai/budget`
+- Memory: `POST/GET /memory`, `GET /memory/search?q=`, `GET /memory/{id}`, `POST /memory/{id}/archive`
+
+## AI sağlayıcıları (env, yalnızca açıkça ayarlanırsa etkin)
+| Değişken | Anlamı |
+|---|---|
+| `WACC_ENABLE_MOCK=1` | Deneme için sahte sağlayıcı |
+| `WACC_LOCAL_LLM_URL`, `WACC_LOCAL_LLM_MODEL` | Yerel model (Ollama/LM Studio, örn. `http://127.0.0.1:11434/v1`). Yalnızca localhost kabul edilir |
+| `WACC_CLOUD_LLM_URL`, `WACC_CLOUD_LLM_KEY`, `WACC_CLOUD_LLM_MODEL`, `WACC_CLOUD_PRICE_IN_PER_1K`, `WACC_CLOUD_PRICE_OUT_PER_1K` | OpenAI uyumlu bulut uç noktası. Yalnızca https. Anahtar sadece env'den okunur, depoya/loga/veritabanına yazılmaz |
+
+Yönlendirme: önce yerel (ücretsiz), başarısız olursa bulut. Bulut çağrıları günlük bütçeye (varsayılan 1.00 USD) takılır. Kullanım defteri yalnızca token ve maliyet tutar, istem/yanıt metni tutmaz.
+
+Memory: gizli anahtar benzeri içerik reddedilir; kayıtlar silinmez, arşivlenir.
+
+## Next (T-0009)
+Windows Execution Backend (`docs/EXECUTION_SECURITY.md`'ye göre). Add new tables as new entries in `storage.MIGRATIONS`; never edit an existing migration.

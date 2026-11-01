@@ -20,14 +20,15 @@ class AppTests(unittest.TestCase):
         from wacc_backend.app import create_app
         self.tmp = tempfile.TemporaryDirectory()
         s = load_settings({"WACC_DATA_DIR": self.tmp.name})
-        self.client = TestClient(create_app(s, token="secret"))
+        from wacc_backend.orchestrator import MockProvider
+        self.client = TestClient(create_app(s, token="secret", providers=[MockProvider()]))
         self.h = {"X-WACC-Token": "secret"}
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def test_health_public_rest_protected(self):
-        self.assertEqual(self.client.get("/health").json()["schema_version"], 2)
+        self.assertEqual(self.client.get("/health").json()["schema_version"], 3)
         self.assertEqual(self.client.get("/projects").status_code, 401)
         self.assertEqual(self.client.get("/projects", headers={"X-WACC-Token": "nope"}).status_code, 401)
 
@@ -65,6 +66,26 @@ class AppTests(unittest.TestCase):
         self.assertEqual(hb.json()["status"], "BUSY")
         self.assertEqual(self.client.post("/agents/ghost/heartbeat", headers=h, json={}).status_code, 404)
         self.assertEqual(len(self.client.get("/agents", headers=h).json()), 1)
+
+    def test_ai_and_memory_over_api(self):
+        h = self.h
+        self.assertEqual(self.client.post("/ai/complete", json={"prompt": "hi"}).status_code, 401)
+        r = self.client.post("/ai/complete", headers=h, json={"prompt": "hello"})
+        self.assertEqual(r.json()["provider"], "mock")
+        self.assertEqual(self.client.post("/ai/complete", headers=h, json={"prompt": " "}).status_code, 400)
+        self.assertEqual(self.client.get("/ai/providers", headers=h).json()[0]["name"], "mock")
+        self.assertEqual(self.client.get("/ai/usage", headers=h).json()["providers"][0]["calls"], 1)
+        self.assertEqual(self.client.post("/ai/budget", headers=h, json={"usd": 2}).json()["budget_usd"], 2)
+        self.assertEqual(self.client.post("/ai/budget", headers=h, json={"usd": -1}).status_code, 400)
+        m = self.client.post("/memory", headers=h, json={"content": "hub uses sqlite", "tags": ["hub"]})
+        self.assertEqual(m.status_code, 201)
+        mid = m.json()["id"]
+        self.assertEqual(self.client.get("/memory/search?q=sqlite", headers=h).json()[0]["id"], mid)
+        self.assertEqual(self.client.get(f"/memory/{mid}", headers=h).status_code, 200)
+        self.assertEqual(self.client.get("/memory/999", headers=h).status_code, 404)
+        bad = self.client.post("/memory", headers=h, json={"content": "ghp_" + "a" * 24})
+        self.assertEqual(bad.status_code, 400)
+        self.assertTrue(self.client.post(f"/memory/{mid}/archive", headers=h).json()["archived"])
 
 
 if __name__ == "__main__":

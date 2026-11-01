@@ -17,7 +17,8 @@ Bu dosya Git'tedir, çünkü Hub veritabanı (`data/hub.db`) kullanıcının bil
 | `start_wacc.bat`, `backup`, `stop`, `resume`, `check_env.ps1`, `run_backend.bat` | Yazıldı | **Windows'ta hiç çalıştırılmadı** |
 | Web panel T-0005 (`web/serve.py` + `web/public`, claude3) | Birleştirildi (main) | claude1 inceledi: yalnızca localhost, Host/Origin kontrolü, innerHTML yok, CSP var. Testlerin çoğu gerçek Hub (fastapi) gerektirdiği için burada atlandı |
 | Task Engine + Agent Manager T-0002 (`backend/wacc_backend/engine.py`, `agents.py`, storage migration v2, `/jobs`, `/agents`, `/engine/*` rotaları) | Yazıldı (claude1, claude2 henüz bağlanmadığı için) | 54 test geçti (hub+backend); FastAPI rotaları **çalıştırılmadı** (fastapi sandbox'ta kurulamıyor) |
-| Flutter, Desktop, Orchestrator, Memory | Yazılmadı | — |
+| AI Orchestrator + Memory T-0003 (`orchestrator.py`, `memory.py`, migration v3, `/ai/*`, `/memory/*`) | Yazıldı (claude1, stand-in) | 78 test geçti (hub+backend+web); gerçek yerel/bulut model ile **denenmedi**, FastAPI rotaları **çalıştırılmadı** |
+| Flutter, Desktop, Yürütme backend'i (T-0009) | Yazılmadı | — |
 
 ### İnceleme notu (claude1 → claude3, T-0005)
 - Panel token'ı `localStorage`'da saklıyor. Localhost için kabul edildi, ama `user` tokenı onay verebilen tek token; panelde "token'ı hatırla" varsayılanı **kapalı** olmalı (sonraki iş, küçük).
@@ -54,7 +55,7 @@ Not: T-0007..T-0009 `python -m wacc_hub seed` ile Hub'a eklenir (`start_wacc.bat
 - `task/integration` dalında: ortam kontrolü, başlatma/yedek betikleri, entegrasyon ve inceleme. Gelen `CODE_READY` mesajlarını incele, `main`'e birleştir.
 
 ## Önemli: claude2 için not
-claude1, claude2 bağlanmadığı için **T-0002'yi (Task Engine + Agent Manager) yazdı** (`task/engine-agents`, `main`'de). claude2 geldiğinde T-0002'yi baştan yazmasın: kodu incelesin, Windows'ta çalıştığını doğrulasın, eksik/hata varsa düzeltsin, sonra T-0003'e geçsin. Task Engine'in `pause` bayrağı Hub'ın `emergency_stop` bayrağından ayrıdır; T-0009 (yürütme) her eylemden önce **ikisini de** kontrol etmeli.
+claude1, claude2 bağlanmadığı için **T-0002 (Task Engine + Agent Manager) ve T-0003'ü (AI Orchestrator + Memory) yazdı** (`task/engine-agents`, `main`'de). claude2 geldiğinde T-0002/T-0003'ü baştan yazmasın: kodu incelesin, Windows'ta çalıştığını doğrulasın, eksik/hata varsa düzeltsin, sonra T-0009'a (yürütme backend'i, `docs/EXECUTION_SECURITY.md`) geçsin. Task Engine'in `pause` bayrağı Hub'ın `emergency_stop` bayrağından ayrıdır; T-0009 (yürütme) her eylemden önce **ikisini de** kontrol etmeli.
 
 ## Açık konular
 - Bu oturumlar Hub'a ancak aynı bilgisayardan (CLI) ya da kimlik doğrulamalı tünelle erişir. Buluttaki oturum `127.0.0.1`'e ulaşamaz.

@@ -1,5 +1,6 @@
 """FastAPI application. Every route except /health requires the X-WACC-Token header."""
 
+import os
 from typing import List, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -8,12 +9,15 @@ from pydantic import BaseModel
 from . import __version__
 from .agents import AgentManager
 from .engine import TaskEngine
+from .memory import Memory
+from .orchestrator import Orchestrator, Provider, build_providers
 from .config import Settings, load_settings
 from .security import get_or_create_token, token_matches
 from .storage import Storage, StorageError
 
 STATUS_MAP = {"NOT_FOUND": 404, "DUPLICATE": 409, "FORBIDDEN": 403, "BAD_STATE": 409,
-              "PROJECT_ARCHIVED": 409, "DISABLED": 409}
+              "PROJECT_ARCHIVED": 409, "DISABLED": 409, "BUDGET_EXCEEDED": 429,
+              "NO_PROVIDER": 503, "ALL_FAILED": 502}
 
 
 class ProjectIn(BaseModel):
@@ -68,12 +72,33 @@ class EnabledIn(BaseModel):
     enabled: bool
 
 
+class CompleteRequest(BaseModel):
+    prompt: str
+    system: Optional[str] = None
+    prefer: str = "auto"
+    provider: Optional[str] = None
+    max_tokens: int = 1024
+
+
+class BudgetIn(BaseModel):
+    usd: float
+
+
+class MemoryIn(BaseModel):
+    content: str
+    tags: List[str] = []
+    project_id: Optional[int] = None
+    source: str = ""
+
+
 def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] = None,
-               token: Optional[str] = None) -> FastAPI:
+               token: Optional[str] = None, providers: Optional[List[Provider]] = None) -> FastAPI:
     settings = settings or load_settings()
     storage = storage or Storage(settings.db_path)
     engine = TaskEngine(storage)
     agents = AgentManager(storage)
+    orchestrator = Orchestrator(storage, providers if providers is not None else build_providers(os.environ))
+    memory = Memory(storage)
     expected = token or get_or_create_token(settings)
     app = FastAPI(title="WACC Backend", version=__version__)
 
@@ -178,5 +203,46 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
     @app.post("/agents/{name}/enabled", dependencies=[Depends(auth)])
     def agent_enabled(name: str, body: EnabledIn):
         return run(agents.set_enabled, name, body.enabled)
+
+    # ----------------------------------------------------------- AI orchestrator
+    @app.post("/ai/complete", dependencies=[Depends(auth)])
+    def ai_complete(body: CompleteRequest):
+        return run(orchestrator.complete, body.prompt, body.system, body.prefer, body.provider, body.max_tokens)
+
+    @app.get("/ai/providers", dependencies=[Depends(auth)])
+    def ai_providers():
+        return orchestrator.list_providers()
+
+    @app.get("/ai/usage", dependencies=[Depends(auth)])
+    def ai_usage():
+        return orchestrator.usage_summary()
+
+    @app.post("/ai/budget", dependencies=[Depends(auth)])
+    def ai_budget(body: BudgetIn):
+        return {"budget_usd": run(orchestrator.set_budget, body.usd)}
+
+    # ------------------------------------------------------------------ memory
+    @app.post("/memory", status_code=201, dependencies=[Depends(auth)])
+    def memory_add(body: MemoryIn):
+        return run(memory.add, body.content, body.tags, body.project_id, body.source)
+
+    @app.get("/memory", dependencies=[Depends(auth)])
+    def memory_list(project_id: Optional[int] = None, tag: Optional[str] = None, limit: int = 50):
+        return memory.list(project_id, tag, limit)
+
+    @app.get("/memory/search", dependencies=[Depends(auth)])
+    def memory_search(q: str, project_id: Optional[int] = None, limit: int = 10):
+        return run(memory.search, q, project_id, limit)
+
+    @app.get("/memory/{memory_id}", dependencies=[Depends(auth)])
+    def memory_get(memory_id: int):
+        entry = memory.get(memory_id)
+        if not entry:
+            raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Memory not found"})
+        return entry
+
+    @app.post("/memory/{memory_id}/archive", dependencies=[Depends(auth)])
+    def memory_archive(memory_id: int):
+        return run(memory.archive, memory_id)
 
     return app

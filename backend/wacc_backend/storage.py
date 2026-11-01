@@ -58,6 +58,34 @@ MIGRATIONS = [
     );
     INSERT INTO engine_flags(key, value) VALUES ('paused', '0');
     """,
+    # version 3: AI usage ledger (no prompt text is stored) and the memory store
+    """
+    CREATE TABLE ai_usage (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts TEXT NOT NULL,
+        day TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        tokens_in INTEGER NOT NULL DEFAULT 0,
+        tokens_out INTEGER NOT NULL DEFAULT 0,
+        cost_usd REAL NOT NULL DEFAULT 0,
+        ok INTEGER NOT NULL DEFAULT 1,
+        error TEXT
+    );
+    CREATE INDEX idx_ai_usage_day ON ai_usage(day);
+    CREATE TABLE memories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER REFERENCES projects(id),
+        content TEXT NOT NULL,
+        tags TEXT NOT NULL DEFAULT '[]',
+        source TEXT NOT NULL DEFAULT '',
+        archived INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX idx_memories_project ON memories(project_id, archived);
+    INSERT INTO engine_flags(key, value) VALUES ('daily_budget_usd', '1.00');
+    """,
 ]
 PROJECT_STATUSES = ("ACTIVE", "PAUSED", "ARCHIVED")
 
