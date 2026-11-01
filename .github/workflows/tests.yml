@@ -70,5 +70,6 @@ jobs:
           }
           Write-Host "--- start.out.log"; Get-Content start.out.log -ErrorAction SilentlyContinue
           Write-Host "--- start.err.log"; Get-Content start.err.log -ErrorAction SilentlyContinue
-          taskkill /F /T /PID $p.Id 2>&1 | Out-Null
+          $ErrorActionPreference = "Continue"
+          try { & taskkill /F /T /PID $p.Id *> $null } catch { }
           exit $code
