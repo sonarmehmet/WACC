@@ -79,7 +79,14 @@ jobs:
             }
           }
           Write-Host "ready=$ready"
+          foreach ($u in $urls) { try { $r = Invoke-WebRequest -UseBasicParsing -Uri $u -TimeoutSec 3; Write-Host "$u -> $($r.StatusCode)" } catch { Write-Host "$u -> FAILED: $($_.Exception.Message)" } }
           if (-not $ready) {
+            $env:PYTHONPATH = "$PWD\backend"
+            Start-Process -FilePath ".venv\Scripts\python.exe" -ArgumentList "-m","wacc_backend" -RedirectStandardOutput be.out.log -RedirectStandardError be.err.log -WindowStyle Hidden
+            Start-Process -FilePath ".venv\Scripts\python.exe" -ArgumentList "web\serve.py" -RedirectStandardOutput web.out.log -RedirectStandardError web.err.log -WindowStyle Hidden
+            Start-Sleep -Seconds 10
+            Write-Host "--- backend direct run (out/err)"; Get-Content be.out.log -ErrorAction SilentlyContinue; Get-Content be.err.log -ErrorAction SilentlyContinue
+            Write-Host "--- panel direct run (out/err)"; Get-Content web.out.log -ErrorAction SilentlyContinue; Get-Content web.err.log -ErrorAction SilentlyContinue
             Write-Host "--- start.out.log"; Get-Content start.out.log -ErrorAction SilentlyContinue
             Write-Host "--- start.err.log"; Get-Content start.err.log -ErrorAction SilentlyContinue
             Get-Process | Where-Object { $_.ProcessName -like "python*" } | Format-Table Id,ProcessName,StartTime
