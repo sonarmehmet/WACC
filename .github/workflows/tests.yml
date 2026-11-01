@@ -38,6 +38,7 @@ jobs:
 
   windows-e2e:
     # Runs the real start_wacc.bat on Windows and then the smoke test against the live services.
+    # Start, wait and test happen in ONE step: the runner kills processes left behind by a finished step.
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -45,31 +46,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Diagnose batch files (line endings and venv)
-        shell: cmd
-        run: |
-          python -c "import pathlib; [print(f.name, 'CRLF' if b'\r\n' in f.read_bytes() else 'LF-only') for f in pathlib.Path('.').glob('*.bat')]"
-          python -m venv diag_venv
-          echo venv exit code: %errorlevel%
-          diag_venv\Scripts\python.exe --version
-      - name: Trace the first half of start_wacc.bat (echo on)
-        shell: powershell
-        continue-on-error: true
-        run: |
-          $lines = Get-Content start_wacc.bat
-          $cut = ($lines | Select-String 'Backend ayri pencerede').LineNumber - 1
-          $lines[0..($cut-1)] | ForEach-Object { $_ -replace '^@echo off','@echo on' } | Set-Content -Encoding ASCII trace.bat
-          cmd.exe /c trace.bat 2>&1
-          Write-Host "trace exit code: $LASTEXITCODE"
-      - name: Start WACC with start_wacc.bat
+      - name: Start WACC with start_wacc.bat, wait, smoke test
         shell: powershell
         run: |
-          Start-Process -FilePath cmd.exe -ArgumentList "/c","start_wacc.bat" -RedirectStandardOutput start.out.log -RedirectStandardError start.err.log -WindowStyle Hidden
-      - name: Wait for hub, backend and panel
-        shell: powershell
-        run: |
+          $p = Start-Process -FilePath cmd.exe -ArgumentList "/c","start_wacc.bat" -RedirectStandardOutput start.out.log -RedirectStandardError start.err.log -WindowStyle Hidden -PassThru
           $urls = "http://127.0.0.1:8765/health","http://127.0.0.1:8800/health","http://127.0.0.1:8780/api/health"
-          $deadline = (Get-Date).AddSeconds(150)
+          $deadline = (Get-Date).AddSeconds(240)
           $ready = $false
           while ((Get-Date) -lt $deadline -and -not $ready) {
             Start-Sleep -Seconds 3
@@ -79,24 +61,14 @@ jobs:
             }
           }
           Write-Host "ready=$ready"
-          foreach ($u in $urls) { try { $r = Invoke-WebRequest -UseBasicParsing -Uri $u -TimeoutSec 3; Write-Host "$u -> $($r.StatusCode)" } catch { Write-Host "$u -> FAILED: $($_.Exception.Message)" } }
-          if (-not $ready) {
-            $env:PYTHONPATH = "$PWD\backend"
-            Start-Process -FilePath ".venv\Scripts\python.exe" -ArgumentList "-m","wacc_backend" -RedirectStandardOutput be.out.log -RedirectStandardError be.err.log -WindowStyle Hidden
-            Start-Process -FilePath ".venv\Scripts\python.exe" -ArgumentList "web\serve.py" -RedirectStandardOutput web.out.log -RedirectStandardError web.err.log -WindowStyle Hidden
-            Start-Sleep -Seconds 10
-            Write-Host "--- backend direct run (out/err)"; Get-Content be.out.log -ErrorAction SilentlyContinue; Get-Content be.err.log -ErrorAction SilentlyContinue
-            Write-Host "--- panel direct run (out/err)"; Get-Content web.out.log -ErrorAction SilentlyContinue; Get-Content web.err.log -ErrorAction SilentlyContinue
-            Write-Host "--- start.out.log"; Get-Content start.out.log -ErrorAction SilentlyContinue
-            Write-Host "--- start.err.log"; Get-Content start.err.log -ErrorAction SilentlyContinue
-            Get-Process | Where-Object { $_.ProcessName -like "python*" } | Format-Table Id,ProcessName,StartTime
-            exit 1
+          $code = 1
+          if ($ready) {
+            python -X utf8 scripts/smoke_test.py
+            $code = $LASTEXITCODE
+          } else {
+            foreach ($u in $urls) { try { $r = Invoke-WebRequest -UseBasicParsing -Uri $u -TimeoutSec 3; Write-Host "$u -> $($r.StatusCode)" } catch { Write-Host "$u -> FAILED" } }
           }
-      - name: Smoke test
-        run: python -X utf8 scripts/smoke_test.py
-      - name: Show start log on failure
-        if: failure()
-        shell: powershell
-        run: |
-          Get-Content start.out.log -ErrorAction SilentlyContinue
-          Get-Content start.err.log -ErrorAction SilentlyContinue
+          Write-Host "--- start.out.log"; Get-Content start.out.log -ErrorAction SilentlyContinue
+          Write-Host "--- start.err.log"; Get-Content start.err.log -ErrorAction SilentlyContinue
+          taskkill /F /T /PID $p.Id 2>&1 | Out-Null
+          exit $code
