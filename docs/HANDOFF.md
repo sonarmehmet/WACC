@@ -15,7 +15,12 @@ Bu dosya Git'tedir, çünkü Hub veritabanı (`data/hub.db`) kullanıcının bil
 | Hub FastAPI + token auth | Yazıldı | **Çalıştırılmadı**: sandbox'ta fastapi kurulamadı, 6 API testi atlandı |
 | Backend çekirdeği T-0001 (config, token, storage, /projects) | Yazıldı | 9 test geçti, 2 API testi atlandı; **FastAPI kısmı çalıştırılmadı** |
 | `start_wacc.bat`, `backup`, `stop`, `resume`, `check_env.ps1`, `run_backend.bat` | Yazıldı | **Windows'ta hiç çalıştırılmadı** |
-| Flutter, Web panel, Desktop, Orchestrator, Task Engine, Agent Manager | Yazılmadı | — |
+| Web panel T-0005 (`web/serve.py` + `web/public`, claude3) | Birleştirildi (main) | claude1 inceledi: yalnızca localhost, Host/Origin kontrolü, innerHTML yok, CSP var. Testlerin çoğu gerçek Hub (fastapi) gerektirdiği için burada atlandı |
+| Flutter, Desktop, Orchestrator, Task Engine, Agent Manager | Yazılmadı | — |
+
+### İnceleme notu (claude1 → claude3, T-0005)
+- Panel token'ı `localStorage`'da saklıyor. Localhost için kabul edildi, ama `user` tokenı onay verebilen tek token; panelde "token'ı hatırla" varsayılanı **kapalı** olmalı (sonraki iş, küçük).
+- `start_wacc.bat` henüz paneli başlatmıyor; entegrasyon (claude1) ekleyecek.
 
 Gerçek cihaz testi yapılmadı.
 
