@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WACC Panel</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="top">
+    <h1>WACC</h1>
+    <span id="conn" class="badge">Bağlanıyor…</span>
+    <span id="stopBadge" class="badge bad hidden">ACİL DURDURMA AÇIK</span>
+    <span class="spacer"></span>
+    <form id="tokenForm" class="inline" autocomplete="off">
+      <label for="token">Token</label>
+      <input id="token" type="password" placeholder="X-WACC-Token" autocomplete="off">
+      <button type="submit">Bağlan</button>
+      <button id="forgetToken" type="button" class="ghost">Unut</button>
+    </form>
+  </header>
+
+  <nav class="tabs" aria-label="Bölümler">
+    <button type="button" data-tab="agents" class="active">Ajanlar</button>
+    <button type="button" data-tab="feed">Akış</button>
+    <button type="button" data-tab="tasks">Görevler</button>
+    <button type="button" data-tab="locks">Kilitler</button>
+  </nav>
+
+  <main>
+    <section id="tab-agents" class="tab">
+      <div class="toolbar">
+        <button id="stopBtn" type="button" class="danger hidden">Acil durdur</button>
+        <button id="resumeBtn" type="button" class="hidden">Devam ettir</button>
+      </div>
+      <div id="agents" class="grid"></div>
+    </section>
+
+    <section id="tab-feed" class="tab hidden">
+      <form id="msgForm" class="card form">
+        <h2>Mesaj gönder</h2>
+        <p id="convHint" class="hint hidden"></p>
+        <div class="row">
+          <label>Alıcı <select id="msgReceiver" required></select></label>
+          <label>Tür <select id="msgType" required></select></label>
+          <label>Öncelik <select id="msgPriority"></select></label>
+        </div>
+        <label>Konu <input id="msgSubject" type="text" maxlength="200" required></label>
+        <label>İçerik <textarea id="msgContent" rows="3" maxlength="20000"></textarea></label>
+        <label class="check"><input id="msgResponse" type="checkbox"> Yanıt gerekli</label>
+        <div><button type="submit">Gönder</button></div>
+      </form>
+      <div class="toolbar">
+        <span id="filterInfo" class="hint"></span>
+        <button id="clearFilter" type="button" class="ghost hidden">Filtreyi temizle</button>
+      </div>
+      <div id="feed" class="feed"></div>
+    </section>
+
+    <section id="tab-tasks" class="tab hidden">
+      <form id="taskForm" class="card form">
+        <h2>Görev oluştur</h2>
+        <p id="taskHint" class="hint hidden">Görevi yalnızca claude1 veya user oluşturabilir.</p>
+        <label>Başlık <input id="taskTitle" type="text" required></label>
+        <label>Açıklama <textarea id="taskDescription" rows="2"></textarea></label>
+        <div class="row">
+          <label>Sahip <select id="taskOwner"></select></label>
+          <label>Öncelik <select id="taskPriority"></select></label>
+        </div>
+        <label>Dosyalar (virgülle ayır) <input id="taskFiles" type="text" placeholder="backend/, web/"></label>
+        <label>Kabul ölçütü <input id="taskAcceptance" type="text"></label>
+        <label>Test ölçütü <input id="taskTests" type="text"></label>
+        <div><button id="taskSubmit" type="submit">Oluştur</button></div>
+      </form>
+      <div id="tasks"></div>
+    </section>
+
+    <section id="tab-locks" class="tab hidden">
+      <div id="locks"></div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
