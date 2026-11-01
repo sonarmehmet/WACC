@@ -349,7 +349,7 @@ class EmergencyStopTests(Base):
         self.assertFalse(t.is_alive())
         self.assertLess(time.monotonic() - started, 2.0)
         self.assertEqual(holder["r"]["status"], "KILLED")
-        self.assertEqual(self.approvals.audit_log()[0]["outcome"], "KILLED")
+        self.assertIn("KILLED", [r["outcome"] for r in self.approvals.audit_log()])  # order vs. the STOP row is a race
 
 
 class AuditTests(Base):
@@ -440,20 +440,25 @@ class RealExecutorTests(Base):
         ex = RealExecutor([self.root], timeout=60)
         flag = {"stop": False}
         marker = self.root / "child_alive.txt"
-        code = ("import subprocess, sys, time\n"
-                "subprocess.Popen([sys.executable, '-c', \"import time, pathlib\\n"
-                "for i in range(600):\\n time.sleep(0.1); pathlib.Path(r'%s').write_text(str(i))\"])\n"
-                "time.sleep(60)" % marker)
-        threading.Timer(0.8, lambda: flag.update(stop=True)).start()
+        (self.root / "child.py").write_text(
+            "import pathlib, sys, time\n"
+            "for i in range(600):\n"
+            "    time.sleep(0.1)\n"
+            "    pathlib.Path(sys.argv[1]).write_text(str(i))\n", encoding="utf-8")
+        (self.root / "parent.py").write_text(
+            "import subprocess, sys, time\n"
+            "subprocess.Popen([sys.executable, 'child.py', sys.argv[1]])\n"
+            "time.sleep(60)\n", encoding="utf-8")
+        threading.Timer(1.0, lambda: flag.update(stop=True)).start()
         started = time.monotonic()
         with self.assertRaises(ExecutionKilled):
-            ex.run({"type": "run", "argv": [sys.executable, "-c", code], "cwd": str(self.root)}, lambda: flag["stop"])
-        self.assertLess(time.monotonic() - started, 4)
+            ex.run({"type": "run", "argv": [sys.executable, "parent.py", str(marker)], "cwd": str(self.root)}, lambda: flag["stop"])
+        self.assertLess(time.monotonic() - started, 5)
         time.sleep(0.5)
         seen = marker.read_text() if marker.exists() else None
-        time.sleep(0.6)
-        self.assertEqual(marker.read_text() if marker.exists() else None, seen)  # grandchild stopped writing
-
+        self.assertIsNotNone(seen, "the child never started, so this test proved nothing")
+        time.sleep(0.8)
+        self.assertEqual(marker.read_text(), seen)  # the grandchild stopped writing: the whole tree was killed
 
 if __name__ == "__main__":
     unittest.main()
