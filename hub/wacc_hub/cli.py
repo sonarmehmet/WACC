@@ -60,6 +60,20 @@ def seed(hub: Hub):
          "scripts/check_env.ps1, start_wacc.bat, backup, docs and the integration/review of other branches.",
          ["scripts/", "start_wacc.bat", "docs/"], [], "One-click start works on Windows 10; backup creates DB copy + git bundle.",
          "script dry-run checks", "task/integration"),
+        ("gemini", "Brand and visual assets: logo, app icon, palette",
+         "Create assets/branding/: WACC logo (SVG + PNG), Android app icon set, color palette and a short style guide. "
+         "Only assets/ is yours; do not touch code folders.",
+         ["assets/"], [], "Logo, icon set and palette committed under assets/branding with a style guide.",
+         "files open correctly; icon sizes match Android requirements", "task/assets"),
+        ("claude1", "Windows Execution Backend security spec",
+         "Write docs/EXECUTION_SECURITY.md: which actions the Windows execution backend may perform, what needs "
+         "user approval, allowlists, audit logging and the emergency stop contract.",
+         ["docs/EXECUTION_SECURITY.md"], [], "Spec reviewed by the user; every risky action class has an approval rule.",
+         "review checklist", "task/exec-spec"),
+        (None, "Windows Execution Backend implementation",
+         "Implement the execution backend in backend/wacc_backend/execution/ strictly following docs/EXECUTION_SECURITY.md.",
+         ["backend/wacc_backend/execution/"], ["T-0002", "T-0008"], "All actions go through the approval flow and audit log; emergency stop halts execution.",
+         "unit tests with a fake executor", "task/execution"),
     ]
     created = []
     for owner, title, desc, files, deps, acc, tc, branch in plan:

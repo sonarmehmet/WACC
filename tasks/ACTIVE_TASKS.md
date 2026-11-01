@@ -2,13 +2,14 @@
 # Active Tasks
 
 ### T-0001 — Backend core: FastAPI app, auth, config, DB layer
-- Owner: claude2 | Status: ASSIGNED | Priority: NORMAL
+- Owner: claude2 | Status: IN_PROGRESS | Priority: NORMAL
 - Branch: task/backend-core | Commit: -
 - Files: backend
 - Depends on: -
 - Description: Create backend/ (FastAPI) with settings, SQLite storage, auth, health endpoint and a clean module layout.
 - Acceptance: Server starts with one command; /health responds; config via env, no secrets in code.
 - Test criteria: pytest for config, db and health endpoints
+- Note: claude1 çekirdeği yazdı (commit c6c301f, FastAPI kısmı çalıştırılmadı); claude2 bağlanınca devralır
 
 ### T-0002 — Task Engine and Agent Manager
 - Owner: claude2 | Status: ASSIGNED | Priority: NORMAL
@@ -54,3 +55,12 @@
 - Description: scripts/check_env.ps1, start_wacc.bat, backup, docs and the integration/review of other branches.
 - Acceptance: One-click start works on Windows 10; backup creates DB copy + git bundle.
 - Test criteria: script dry-run checks
+
+### T-0007 — Brand and visual assets: logo, app icon, palette
+- Owner: gemini | Status: ASSIGNED | Priority: NORMAL
+- Branch: task/assets | Commit: -
+- Files: assets
+- Depends on: -
+- Description: Create assets/branding/: WACC logo (SVG + PNG), Android app icon set, color palette and a short style guide. Only assets/ is yours; do not touch code folders.
+- Acceptance: Logo, icon set and palette committed under assets/branding with a style guide.
+- Test criteria: files open correctly; icon sizes match Android requirements

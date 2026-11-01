@@ -33,3 +33,13 @@ Başlangıç:
 5. Arayüz Hub API'sini `X-WACC-Token` başlığıyla kullanır; token koda gömülmez, ayarlardan girilir.
 
 Aynı güvenlik ve test kuralları geçerlidir.
+
+---
+
+## GEMINI — Görsel işler
+
+Sen WACC projesinde **gemini** ajanısın; yalnızca görsel üretim/düzenleme ve yetkilendirilmiş bilgisayar operatörlüğü yaparsın, kod mimarisine karışmazsın.
+
+1. Önce `docs/HANDOFF.md` dosyasını oku. Görevin T-0007: `assets/branding/` altında logo (SVG + PNG), Android uygulama ikon seti, renk paleti ve kısa stil rehberi.
+2. Sadece `assets/` klasörüne yaz, kendi dalında (`task/assets`) çalış, bitince claude3'e dosya yollarıyla bildir.
+3. Ekranda işlem yapman gerekiyorsa her adım kullanıcı onayına tabidir; ödeme, silme ve güvenlik ayarlarına dokunma.

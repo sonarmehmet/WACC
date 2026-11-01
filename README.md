@@ -10,8 +10,11 @@ Hibrit (yerel + bulut) AI geliştirme ekibi sistemi. Üç Claude geliştirici ve
 | Görev / kilit / karar / checkpoint sistemi | Yazıldı |
 | `tasks/*.md` otomatik özetler | Yazıldı |
 | Windows başlatma, yedek, acil durdurma betikleri | Yazıldı (Windows'ta henüz çalıştırılmadı) |
-| Backend core, Orchestrator, Agent Manager | Claude 2 görevi (T-0001..T-0003) |
+| Backend çekirdeği (config, auth, storage, /projects) | Yazıldı (T-0001), FastAPI kısmı henüz çalıştırılmadı |
+| Task Engine, Agent Manager, Orchestrator, Memory | Claude 2 görevi (T-0002, T-0003) |
 | Flutter uygulaması, Web panel | Claude 3 görevi (T-0004, T-0005) |
+
+> Yeni bir oturum açıyorsan önce `docs/HANDOFF.md` dosyasını oku.
 
 ## Hızlı başlangıç (Windows 10)
 
@@ -19,7 +22,8 @@ Hibrit (yerel + bulut) AI geliştirme ekibi sistemi. Üç Claude geliştirici ve
 2. `start_wacc.bat` dosyasına çift tıkla. Sanal ortamı kurar, Hub'ı hazırlar, ilk görevleri oluşturur ve `http://127.0.0.1:8765` adresinde başlatır.
 3. Ortam kontrolü için: `powershell -ExecutionPolicy Bypass -File scripts\check_env.ps1`
 4. Acil durdurma: `stop_wacc.bat` — devam için `resume_wacc.bat`.
-5. Yedek: `backup_wacc.bat` (veritabanı kopyası + git bundle, `backups/` içine).
+5. İlk çalıştırma testi (sistem açıkken): `smoke_wacc.bat`
+6. Yedek: `backup_wacc.bat` (veritabanı kopyası + git bundle, `backups/` içine).
 
 ## Yapı
 

@@ -27,6 +27,9 @@ echo [WACC] Communication Hub hazirlaniyor...
 ".venv\Scripts\python.exe" -m wacc_hub init
 ".venv\Scripts\python.exe" -m wacc_hub seed >nul
 
+echo [WACC] Backend ayri pencerede baslatiliyor...
+start "WACC Backend" "%~dp0scripts\run_backend.bat"
+
 echo [WACC] Hub baslatiliyor: http://127.0.0.1:8765  (yalnizca bu bilgisayar)
 echo [WACC] Durdurmak icin bu pencereyi kapatin veya Ctrl+C.
 ".venv\Scripts\python.exe" -m wacc_hub serve --host 127.0.0.1 --port 8765
