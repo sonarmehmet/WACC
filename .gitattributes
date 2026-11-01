@@ -1,0 +1,5 @@
+# Windows batch/PowerShell files must use CRLF or cmd.exe can mis-parse them.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.sh  text eol=lf

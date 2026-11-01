@@ -45,6 +45,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Diagnose batch files (line endings and venv)
+        shell: cmd
+        run: |
+          python -c "import pathlib; [print(f.name, 'CRLF' if b'\r\n' in f.read_bytes() else 'LF-only') for f in pathlib.Path('.').glob('*.bat')]"
+          python -m venv diag_venv
+          echo venv exit code: %errorlevel%
+          diag_venv\Scripts\python.exe --version
       - name: Start WACC with start_wacc.bat
         shell: powershell
         run: |
