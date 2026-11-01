@@ -39,14 +39,33 @@ const enc = encodeURIComponent;
 
 /* ------------------------------------------------------------------ utilities */
 
-function readStore(key) {
-  try { return localStorage.getItem(key) || ""; } catch (e) { return ""; }
+// The user token is the only one that can approve things, so it is NOT kept across browser
+// sessions unless "Hatırla" is ticked: by default it lives in sessionStorage (gone when the
+// tab closes); with "Hatırla" it goes to localStorage. Storage can be blocked: the panel then
+// still works for this page load.
+function storageArea(persistent) {
+  try { return persistent ? window.localStorage : window.sessionStorage; } catch (e) { return null; }
 }
 
-function writeStore(key, value) {
-  try {
-    if (value) localStorage.setItem(key, value); else localStorage.removeItem(key);
-  } catch (e) { /* storage can be blocked: the panel still works for this page load */ }
+function loadToken() {
+  for (const persistent of [true, false]) {
+    const area = storageArea(persistent);
+    let value = "";
+    try { value = area ? area.getItem(TOKEN_KEY) || "" : ""; } catch (e) { value = ""; }
+    if (value) return { token: value, remember: persistent };
+  }
+  return { token: "", remember: false };
+}
+
+function saveToken(token, remember) {
+  for (const persistent of [true, false]) {
+    const area = storageArea(persistent);
+    if (!area) continue;
+    try {
+      if (token && persistent === remember) area.setItem(TOKEN_KEY, token);
+      else area.removeItem(TOKEN_KEY);
+    } catch (e) { /* ignore */ }
+  }
 }
 
 function el(tag, props, ...kids) {
@@ -422,24 +441,31 @@ function init() {
   fill($("taskOwner"), [{ value: "", text: "Sahipsiz (BACKLOG)" }, ...WORKERS.map((w) => ({ value: w, text: w }))], "");
   fill($("taskPriority"), PRIORITIES, "NORMAL");
 
-  state.token = readStore(TOKEN_KEY);
-  $("token").value = state.token;
+  const saved = loadToken();
+  state.token = saved.token;
+  $("token").value = saved.token;
+  $("remember").checked = saved.remember; // off unless the user chose to keep the token
 
   document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
 
   $("tokenForm").addEventListener("submit", (ev) => {
     ev.preventDefault();
     state.token = $("token").value.trim();
-    writeStore(TOKEN_KEY, state.token);
+    saveToken(state.token, $("remember").checked);
     state.signatures = {};
     refresh();
+  });
+  // Changing the checkbox moves an already-saved token between the two stores right away.
+  $("remember").addEventListener("change", () => {
+    if (state.token) saveToken(state.token, $("remember").checked);
   });
   $("forgetToken").addEventListener("click", () => {
     state.token = "";
     state.me = null;
     state.signatures = {};
     $("token").value = "";
-    writeStore(TOKEN_KEY, "");
+    $("remember").checked = false;
+    saveToken("", false);
     refresh();
   });
 

@@ -97,6 +97,8 @@ input, select, textarea {
 }
 textarea { resize: vertical; }
 .inline input { width: 200px; }
+.inline .check-inline { display: flex; align-items: center; gap: 4px; font-size: 13px; color: var(--muted); }
+.inline .check-inline input { width: auto; }
 
 .badge {
   display: inline-block;

@@ -230,6 +230,23 @@ class FrontendSourceTests(unittest.TestCase):
         for f in (WEB / "public").iterdir():
             self.assertNotIn("tokens.json", f.read_text(encoding="utf-8"), f.name)
 
+    def test_remember_token_is_off_by_default(self):
+        import re
+        html = (WEB / "public" / "index.html").read_text(encoding="utf-8")
+        tag = re.search(r'<input[^>]*id="remember"[^>]*>', html)
+        self.assertIsNotNone(tag, "remember checkbox missing")
+        self.assertIn('type="checkbox"', tag.group(0))
+        self.assertNotIn("checked", tag.group(0))  # off unless the user turns it on
+
+    def test_token_is_persistent_only_when_remembered(self):
+        source = (WEB / "public" / "app.js").read_text(encoding="utf-8")
+        # no direct localStorage/sessionStorage use outside the token helpers
+        self.assertEqual(source.count("window.localStorage"), 1)
+        self.assertEqual(source.count("window.sessionStorage"), 1)
+        self.assertNotIn("readStore", source)
+        self.assertNotIn("writeStore", source)
+        self.assertIn("persistent === remember", source)
+
     @unittest.skipUnless(shutil.which("node"), "node not installed")
     def test_javascript_parses(self):
         result = subprocess.run(["node", "--check", str(WEB / "public" / "app.js")],

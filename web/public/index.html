@@ -15,6 +15,10 @@
     <form id="tokenForm" class="inline" autocomplete="off">
       <label for="token">Token</label>
       <input id="token" type="password" placeholder="X-WACC-Token" autocomplete="off">
+      <label class="check-inline" for="remember"
+             title="Kapalıyken token sekme kapanınca silinir; açıkken bu tarayıcıda kalıcı saklanır.">
+        <input id="remember" type="checkbox"> Hatırla
+      </label>
       <button type="submit">Bağlan</button>
       <button id="forgetToken" type="button" class="ghost">Unut</button>
     </form>
