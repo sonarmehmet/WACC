@@ -12,7 +12,8 @@ Hibrit (yerel + bulut) AI geliştirme ekibi sistemi. Üç Claude geliştirici ve
 | `start_wacc.bat` (Hub + backend + web panel) | Gerçek Windows'ta uçtan uca doğrulandı |
 | Yedek, acil durdurma betikleri | Gerçek Windows CI içinde denendi |
 | Backend: Task Engine, Agent Manager, AI Orchestrator, Memory, Yürütme (onaylı) | Yazıldı, CI'da test edildi |
-| Flutter uygulaması, Web panel | Claude 3 görevi (T-0004, T-0005) |
+| Web panel, Flutter iskeleti | Claude 3 yazdı, CI'da test edildi |
+| Masaüstü paneli (`run_desktop.bat`, onay ekranı dahil) | Yazıldı, Windows CI'da pencere açılarak denendi |
 
 > Yeni bir oturum açıyorsan önce `docs/HANDOFF.md` dosyasını oku.
 > **Windows'ta zip yerine `git clone`/`git pull` kullan**: `.bat` dosyaları CRLF satır sonu ister, `.gitattributes` bunu clone sırasında ayarlar.
