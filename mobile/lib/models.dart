@@ -1,6 +1,8 @@
 // Data classes for the Communication Hub API. Everything that comes from the Hub is
 // untrusted agent text: it is only ever shown with Text widgets, never interpreted.
 
+import 'dart:convert';
+
 const List<String> agentIds = ['claude1', 'claude2', 'claude3', 'gemini', 'user'];
 const List<String> workerIds = ['claude1', 'claude2', 'claude3', 'gemini'];
 const List<String> leaderIds = ['claude1', 'user'];
@@ -213,4 +215,124 @@ String ago(String? iso, {DateTime? now}) {
   if (seconds < 3600) return '${seconds ~/ 60} dk önce';
   if (seconds < 86400) return '${seconds ~/ 3600} sa önce';
   return '${seconds ~/ 86400} gün önce';
+}
+
+/// Action classes that deserve extra care when approving (docs/EXECUTION_SECURITY.md).
+const List<String> riskyActionClasses = [
+  'DELETE',
+  'SYSTEM_CHANGE',
+  'PUBLISH',
+  'PERSONAL_FILES',
+  'FINANCIAL',
+  'SECRET_EXPORT',
+];
+
+/// A request by an agent that needs the user's approval (Backend `/exec/approvals`).
+class ApprovalItem {
+  const ApprovalItem({
+    required this.id,
+    required this.requestedBy,
+    required this.actionClass,
+    required this.action,
+    required this.actionHash,
+    required this.riskSummary,
+    required this.status,
+    required this.createdAt,
+    required this.expiresAt,
+    this.decidedBy,
+    this.decidedAt,
+  });
+
+  factory ApprovalItem.fromJson(Map<String, dynamic> j) {
+    final raw = j['action'];
+    return ApprovalItem(
+      id: _int(j['id']),
+      requestedBy: _str(j['requested_by']) ?? '?',
+      actionClass: _str(j['action_class']) ?? '?',
+      action: raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{'raw': _str(raw) ?? ''},
+      actionHash: _str(j['action_hash']) ?? '',
+      riskSummary: _str(j['risk_summary']) ?? '',
+      status: _str(j['status']) ?? '',
+      createdAt: _str(j['created_at']) ?? '',
+      expiresAt: _str(j['expires_at']) ?? '',
+      decidedBy: _str(j['decided_by']),
+      decidedAt: _str(j['decided_at']),
+    );
+  }
+
+  final int id;
+  final String requestedBy;
+  final String actionClass;
+
+  /// The normalized action exactly as the Backend will run it. This is what the user must read.
+  final Map<String, dynamic> action;
+  final String actionHash;
+
+  /// Backend's own risk text. Helpful, but the raw [action] is what counts.
+  final String riskSummary;
+  final String status;
+  final String createdAt;
+  final String expiresAt;
+  final String? decidedBy;
+  final String? decidedAt;
+
+  bool get isRisky => riskyActionClasses.contains(actionClass);
+
+  String get prettyAction => const JsonEncoder.withIndent('  ').convert(action);
+
+  /// One line, clipped, for dialogs and lists.
+  String get shortAction {
+    final text = jsonEncode(action);
+    return text.length > 300 ? '${text.substring(0, 300)}…' : text;
+  }
+
+  String get shortHash => actionHash.length > 16 ? '${actionHash.substring(0, 16)}…' : actionHash;
+}
+
+class ExecStatus {
+  const ExecStatus({required this.emergencyStop, this.roots = const []});
+
+  factory ExecStatus.fromJson(Map<String, dynamic> j) => ExecStatus(
+        emergencyStop: _bool(j['emergency_stop']),
+        roots: _strList(j['roots']),
+      );
+
+  final bool emergencyStop;
+  final List<String> roots;
+}
+
+class AuditEntry {
+  const AuditEntry({
+    required this.ts,
+    required this.agent,
+    required this.actionClass,
+    required this.outcome,
+    required this.summary,
+    this.durationMs = 0,
+  });
+
+  factory AuditEntry.fromJson(Map<String, dynamic> j) => AuditEntry(
+        ts: _str(j['ts']) ?? '',
+        agent: _str(j['agent']) ?? '?',
+        actionClass: _str(j['action_class']) ?? '?',
+        outcome: _str(j['outcome']) ?? '',
+        summary: _str(j['summary']) ?? '',
+        durationMs: _int(j['duration_ms']),
+      );
+
+  final String ts;
+  final String agent;
+  final String actionClass;
+  final String outcome;
+  final String summary;
+  final int durationMs;
+}
+
+/// "9 dk 05 sn kaldı", or "süresi doldu" once [expiresIso] has passed; "-" when unparsable.
+String remainingText(String? expiresIso, {DateTime? now}) {
+  final parsed = expiresIso == null ? null : DateTime.tryParse(expiresIso);
+  if (parsed == null) return '-';
+  final seconds = parsed.difference(now ?? DateTime.now()).inSeconds;
+  if (seconds <= 0) return 'süresi doldu';
+  return '${seconds ~/ 60} dk ${(seconds % 60).toString().padLeft(2, '0')} sn kaldı';
 }
