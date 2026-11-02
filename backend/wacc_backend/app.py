@@ -15,7 +15,7 @@ from .execution.executor import Executor, RealExecutor
 from .execution.service import EmergencyStop, ExecutionService
 from .orchestrator import Orchestrator, Provider, build_providers
 from .config import Settings, load_settings
-from .security import get_or_create_token, get_or_create_user_token, token_matches
+from .security import get_or_create_agent_tokens, get_or_create_token, get_or_create_user_token, token_matches
 from .storage import Storage, StorageError
 
 STATUS_MAP = {"NOT_FOUND": 404, "DUPLICATE": 409, "FORBIDDEN": 403, "BAD_STATE": 409,
@@ -107,7 +107,8 @@ class MemoryIn(BaseModel):
 
 def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] = None,
                token: Optional[str] = None, providers: Optional[List[Provider]] = None,
-               executor: Optional[Executor] = None, user_token: Optional[str] = None) -> FastAPI:
+               executor: Optional[Executor] = None, user_token: Optional[str] = None,
+               agent_tokens: Optional[dict] = None) -> FastAPI:
     settings = settings or load_settings()
     storage = storage or Storage(settings.db_path)
     engine = TaskEngine(storage)
@@ -116,6 +117,7 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
     memory = Memory(storage)
     expected = token or get_or_create_token(settings)
     user_expected = user_token or get_or_create_user_token(settings)
+    agent_token_map = agent_tokens if agent_tokens is not None else get_or_create_agent_tokens(settings)
     approvals = Approvals(storage)
     stop = EmergencyStop(settings.data_dir, engine, approvals)
     execution = ExecutionService(storage, settings.exec_roots, executor or RealExecutor(settings.exec_roots), stop, approvals,
@@ -123,13 +125,32 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
     app = FastAPI(title="WACC Backend", version=__version__)
     app.state.engine, app.state.orchestrator, app.state.execution = engine, orchestrator, execution
 
-    def auth(x_wacc_token: str = Header(default="")) -> str:
-        """Returns the caller's role: 'user' (human, can approve) or 'agent'."""
+    def caller(x_wacc_token: str = Header(default="")) -> str:
+        """Who is calling: 'user' (the human), an agent name (own token), or 'shared' (legacy read token)."""
         if token_matches(user_expected, x_wacc_token):
             return "user"
+        for name, tok in agent_token_map.items():
+            if token_matches(tok, x_wacc_token):
+                return name
         if token_matches(expected, x_wacc_token):
-            return "agent"
+            return "shared"
         raise HTTPException(status_code=401, detail="Invalid or missing X-WACC-Token")
+
+    def auth(who: str = Depends(caller)) -> str:
+        """Role: 'user' (human, can approve) or 'agent'."""
+        return "user" if who == "user" else "agent"
+
+    def acting_agent(who: str, claimed: str) -> str:
+        """The name an action is attributed to. Agents may only act as themselves."""
+        if who == "user":
+            return claimed
+        if who == "shared":
+            raise HTTPException(status_code=403, detail={"code": "FORBIDDEN", "message":
+                                "The shared token is read-only here; use your own agent token"})
+        if claimed != who:
+            raise HTTPException(status_code=403, detail={"code": "FORBIDDEN", "message":
+                                f"This token belongs to {who}; it cannot act as {claimed!r}"})
+        return who
 
     def user_only(role: str = Depends(auth)) -> str:
         if role != "user":
@@ -226,11 +247,12 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
     def register_agent(body: AgentIn):
         return run(agents.register, body.name, body.role, body.capabilities)
 
-    @app.post("/agents/{name}/heartbeat", dependencies=[Depends(auth)])
-    def agent_heartbeat(name: str, body: HeartbeatIn):
+    @app.post("/agents/{name}/heartbeat")
+    def agent_heartbeat(name: str, body: HeartbeatIn, who: str = Depends(caller)):
+        acting_agent(who, name)  # an agent can only report on itself
         return run(agents.heartbeat, name, body.status, body.current_job)
 
-    @app.post("/agents/{name}/enabled", dependencies=[Depends(auth)])
+    @app.post("/agents/{name}/enabled", dependencies=[Depends(user_only)])  # switching agents on/off is the human's call
     def agent_enabled(name: str, body: EnabledIn):
         return run(agents.set_enabled, name, body.enabled)
 
@@ -276,9 +298,10 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
         return run(memory.archive, memory_id)
 
     # ------------------------------------------------------- execution backend
-    @app.post("/exec", dependencies=[Depends(auth)])
-    def exec_submit(body: ExecIn):
-        return run(execution.submit, body.agent, body.action, body.approval_id)
+    @app.post("/exec")
+    def exec_submit(body: ExecIn, who: str = Depends(caller)):
+        agent = acting_agent(who, body.agent)  # attribution comes from the token, not from the request body
+        return run(execution.submit, agent, body.action, body.approval_id)
 
     @app.get("/exec/approvals", dependencies=[Depends(auth)])
     def exec_approvals(status: Optional[str] = None, limit: int = 100):

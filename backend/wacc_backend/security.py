@@ -1,6 +1,7 @@
 """API token handling. The token comes from env or a git-ignored file under data/."""
 
 import hmac
+import json
 import os
 import secrets
 
@@ -21,6 +22,35 @@ def get_or_create_user_token(settings: Settings) -> str:
     once in the console window.
     """
     return settings.user_token_override or secrets.token_urlsafe(32)
+
+
+AGENT_NAMES = ("claude1", "claude2", "claude3", "gemini")
+
+
+def get_or_create_agent_tokens(settings: Settings) -> dict:
+    """One token per agent (data/backend_tokens.json, git-ignored). The token decides who is acting, so
+    an agent cannot submit actions or change another agent's state under someone else's name."""
+    path = settings.agent_tokens_file
+    tokens: dict = {}
+    if path.exists():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            tokens = {k: v for k, v in loaded.items() if k in AGENT_NAMES and isinstance(v, str) and v}
+        except ValueError:
+            tokens = {}
+    changed = False
+    for name in AGENT_NAMES:
+        if name not in tokens:
+            tokens[name] = secrets.token_urlsafe(32)
+            changed = True
+    if changed or not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(tokens, indent=2), encoding="utf-8")
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+    return tokens
 
 
 def _file_token(path) -> str:

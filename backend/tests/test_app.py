@@ -24,9 +24,12 @@ class AppTests(unittest.TestCase):
         from wacc_backend.execution.executor import FakeExecutor
         self.fake = FakeExecutor()
         self.client = TestClient(create_app(s, token="secret", providers=[MockProvider()], executor=self.fake,
-                                            user_token="human"))
+                                            user_token="human",
+                                            agent_tokens={"claude2": "tok-c2", "claude3": "tok-c3"}))
         self.u = {"X-WACC-Token": "human"}
-        self.h = {"X-WACC-Token": "secret"}
+        self.h = {"X-WACC-Token": "secret"}  # legacy shared token (read-only for actions)
+        self.c2 = {"X-WACC-Token": "tok-c2"}
+        self.c3 = {"X-WACC-Token": "tok-c3"}
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -66,9 +69,9 @@ class AppTests(unittest.TestCase):
         self.client.post("/engine/resume", headers=h)
         r = self.client.post("/agents", headers=h, json={"name": "claude2", "role": "backend", "capabilities": ["api"]})
         self.assertEqual(r.status_code, 201)
-        hb = self.client.post("/agents/claude2/heartbeat", headers=h, json={"status": "BUSY"})
+        hb = self.client.post("/agents/claude2/heartbeat", headers=self.c2, json={"status": "BUSY"})
         self.assertEqual(hb.json()["status"], "BUSY")
-        self.assertEqual(self.client.post("/agents/ghost/heartbeat", headers=h, json={}).status_code, 404)
+        self.assertEqual(self.client.post("/agents/ghost/heartbeat", headers=self.u, json={}).status_code, 404)
         self.assertEqual(len(self.client.get("/agents", headers=h).json()), 1)
 
     def test_ai_and_memory_over_api(self):
@@ -92,7 +95,7 @@ class AppTests(unittest.TestCase):
         self.assertTrue(self.client.post(f"/memory/{mid}/archive", headers=h).json()["archived"])
 
     def test_execution_roles_and_flow(self):
-        h, u = self.h, self.u
+        h, u = self.c2, self.u
         self.assertEqual(self.client.post("/exec", json={"agent": "a", "action": {}}).status_code, 401)
         r = self.client.post("/exec", headers=h, json={"agent": "claude2", "action": {"type": "write_file", "path": "x.txt", "content": "hi"}})
         self.assertEqual(r.json()["status"], "OK")  # root defaults to the repo folder
@@ -117,6 +120,41 @@ class AppTests(unittest.TestCase):
         self.assertEqual(self.client.post("/exec/resume", headers=h).status_code, 403)  # only the user lifts it
         self.assertFalse(self.client.post("/exec/resume", headers=u).json()["emergency_stop"])
         self.assertFalse(self.client.get("/exec/status", headers=h).json()["emergency_stop"])
+
+
+    def test_actions_are_attributed_by_token_not_by_request_body(self):
+        read = {"type": "read_file", "path": "README.md"}
+        # an agent cannot submit under another agent's name
+        r = self.client.post("/exec", headers=self.c3, json={"agent": "claude2", "action": read})
+        self.assertEqual(r.status_code, 403)
+        self.assertIn("claude3", r.json()["detail"]["message"])
+        # under its own name it works
+        self.assertEqual(self.client.post("/exec", headers=self.c3, json={"agent": "claude3", "action": read}).status_code, 200)
+        # the legacy shared token cannot submit actions at all
+        self.assertEqual(self.client.post("/exec", headers=self.h, json={"agent": "claude2", "action": read}).status_code, 403)
+        # the human may submit for testing
+        self.assertEqual(self.client.post("/exec", headers=self.u, json={"agent": "claude2", "action": read}).status_code, 200)
+        audit = self.client.get("/exec/audit", headers=self.u).json()
+        self.assertIn("claude3", {row["agent"] for row in audit})
+
+    def test_approval_requested_by_one_agent_cannot_be_used_by_another(self):
+        req = {"agent": "claude2", "action": {"type": "delete_path", "path": "x.txt"}}
+        aid = self.client.post("/exec", headers=self.c2, json=req).json()["approval_id"]
+        self.client.post(f"/exec/approvals/{aid}/approve", headers=self.u)
+        stolen = self.client.post("/exec", headers=self.c3, json={**req, "agent": "claude3", "approval_id": aid})
+        self.assertEqual(stolen.status_code, 403)
+
+    def test_agents_cannot_heartbeat_for_others_or_toggle_agents(self):
+        self.client.post("/agents", headers=self.u, json={"name": "claude2", "role": "backend", "capabilities": []})
+        self.client.post("/agents", headers=self.u, json={"name": "claude3", "role": "mobile", "capabilities": []})
+        self.assertEqual(self.client.post("/agents/claude2/heartbeat", headers=self.c3, json={}).status_code, 403)
+        self.assertEqual(self.client.post("/agents/claude2/heartbeat", headers=self.h, json={}).status_code, 403)
+        self.assertEqual(self.client.post("/agents/claude2/enabled", headers=self.c3, json={"enabled": False}).status_code, 403)
+        self.assertEqual(self.client.post("/agents/claude2/enabled", headers=self.u, json={"enabled": False}).status_code, 200)
+
+    def test_per_agent_tokens_are_read_valid_everywhere(self):
+        self.assertEqual(self.client.get("/projects", headers=self.c2).status_code, 200)
+        self.assertEqual(self.client.get("/projects", headers={"X-WACC-Token": "tok-c2 "}).status_code, 401)
 
 
 if __name__ == "__main__":
