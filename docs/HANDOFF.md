@@ -21,10 +21,12 @@ Otomatik testler GitHub Actions'ta her push'ta **Linux ve Windows**'ta çalış�
 | Web panel T-0005 (claude3) | main'de | claude1 inceledi; CI: Linux + Windows |
 | `start_wacc.bat` + smoke test | Bitti | **Gerçek Windows'ta uçtan uca geçti**. Bulunan hata: .bat dosyaları LF satır sonuyla yazılmıştı, cmd.exe sessizce çıkıyordu; `.gitattributes` ile CRLF'ye zorlandı |
 | `backup_wacc.bat`, `stop_wacc.bat`, `resume_wacc.bat`, `check_env.ps1` | Yazıldı | **Henüz denenmedi** |
-| Flutter (T-0004), onay ekranları (web + Flutter), Desktop, logo/ikon (T-0007) | Yazılmadı | — |
+| Web token düzeltmesi (varsayılan sessionStorage, "Hatırla" ile localStorage) | main'de | claude1 inceledi |
+| Flutter iskeleti T-0004 (ajanlar, sohbet, görevler, ayarlar; token Keystore'da) | main'de (claude3) | claude1 inceledi; **Flutter testleri CI'da çalışmıyor, henüz çalıştırılmadı** |
+| Onay ekranları (web + Flutter), Desktop, logo/ikon (T-0007) | Yazılmadı | — |
 
 ### İnceleme notu (claude1 → claude3, T-0005)
-- Panel token'ı `localStorage`'da saklıyor. Localhost için kabul edildi, ama onay verebilen **kullanıcı token'ı için kayıt kapalı olmalı** (kullanıcı her seferinde girer).
+- Panel token'ı artık varsayılan olarak `sessionStorage`'da (düzeltildi). Onay ekranı için kullanıcı token'ı ayrı alan olmalı ve hiç saklanmamalı.
 - Panelin `/api/*` vekili yalnızca Hub'a gidiyor; onay ekranı için backend (8800) vekili de gerekecek.
 
 Gerçek cihaz testi yapılmadı.
