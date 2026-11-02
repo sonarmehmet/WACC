@@ -35,6 +35,8 @@ jobs:
         run: python -m pytest backend/tests -v
       - name: Web panel tests
         run: python -m pytest web/tests -v
+      - name: Desktop panel tests
+        run: python -m pytest desktop/tests -v -rs
 
   windows-e2e:
     # Runs the real start_wacc.bat on Windows and then the smoke test against the live services.
