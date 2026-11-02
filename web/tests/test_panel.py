@@ -236,6 +236,7 @@ class BackendProxyTests(unittest.TestCase):
 
     TOKEN = "backend-secret"        # agent token
     USER_TOKEN = "human-secret"     # the only token that may approve
+    CLAUDE2_TOKEN = "claude2-secret"  # per-agent token: the Backend attributes /exec by token
 
     @classmethod
     def setUpClass(cls):
@@ -244,7 +245,8 @@ class BackendProxyTests(unittest.TestCase):
         backend_port = free_port()
         cls.backend_server = uvicorn.Server(uvicorn.Config(
             create_backend_app(settings, token=cls.TOKEN, providers=[MockProvider()],
-                               executor=FakeExecutor(), user_token=cls.USER_TOKEN),
+                               executor=FakeExecutor(), user_token=cls.USER_TOKEN,
+                               agent_tokens={"claude2": cls.CLAUDE2_TOKEN}),
             host="127.0.0.1", port=backend_port, log_level="warning"))
         cls.backend_thread = threading.Thread(target=cls.backend_server.run, daemon=True)
         cls.backend_thread.start()
@@ -272,12 +274,12 @@ class BackendProxyTests(unittest.TestCase):
         cls.tmp.cleanup()
 
     @classmethod
-    def direct(cls, method, path, body=None):
+    def direct(cls, method, path, body=None, token=None):
         """Straight to the Backend as an agent (not through the panel)."""
         conn = http.client.HTTPConnection(cls.backend_url.split("//")[1], timeout=10)
         try:
             conn.request(method, path, body=json.dumps(body) if body is not None else None,
-                         headers={"X-WACC-Token": cls.TOKEN, "Content-Type": "application/json"})
+                         headers={"X-WACC-Token": token or cls.TOKEN, "Content-Type": "application/json"})
             resp = conn.getresponse()
             raw = resp.read()
             assert resp.status < 300, (path, resp.status, raw)
@@ -288,7 +290,8 @@ class BackendProxyTests(unittest.TestCase):
     @classmethod
     def request_approval(cls, path):
         """An agent asks to delete `path`; returns the pending approval id."""
-        out = cls.direct("POST", "/exec", {"agent": "claude2", "action": {"type": "delete_path", "path": path}})
+        out = cls.direct("POST", "/exec", {"agent": "claude2", "action": {"type": "delete_path", "path": path}},
+                         token=cls.CLAUDE2_TOKEN)
         assert out["status"] == "APPROVAL_REQUIRED", out
         return out["approval_id"]
 
@@ -402,13 +405,14 @@ class BackendProxyTests(unittest.TestCase):
         aid = self.request_approval("approve-me.txt")
         status, body = self.post("/backend/exec/approvals/%d/approve" % aid, token=self.USER_TOKEN)
         self.assertEqual((status, body["status"]), (200, "APPROVED"))
-        done = self.direct("POST", "/exec", {"agent": "claude2", "action": action, "approval_id": aid})
+        done = self.direct("POST", "/exec", {"agent": "claude2", "action": action, "approval_id": aid},
+                           token=self.CLAUDE2_TOKEN)
         self.assertEqual(done["status"], "OK")
         # single use: the same approval cannot run it again
         conn = http.client.HTTPConnection(self.backend_url.split("//")[1], timeout=10)
         try:
             conn.request("POST", "/exec", body=json.dumps({"agent": "claude2", "action": action, "approval_id": aid}),
-                         headers={"X-WACC-Token": self.TOKEN, "Content-Type": "application/json"})
+                         headers={"X-WACC-Token": self.CLAUDE2_TOKEN, "Content-Type": "application/json"})
             self.assertEqual(conn.getresponse().status, 403)
         finally:
             conn.close()
