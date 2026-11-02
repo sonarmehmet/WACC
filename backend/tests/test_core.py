@@ -25,6 +25,28 @@ class ConfigTests(unittest.TestCase):
                 load_settings({"WACC_BACKEND_PORT": bad})
 
 
+class EnvFileTests(unittest.TestCase):
+    def test_loads_only_wacc_keys_without_overriding_and_never_secrets(self):
+        import tempfile
+        from wacc_backend.config import load_env_file
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "llm.env"
+            f.write_text("# comment\nWACC_LOCAL_LLM_URL=http://127.0.0.1:11434/v1\nWACC_LOCAL_LLM_MODEL=\"m1\"\n"
+                         "WACC_ALREADY=file\nPATH=/evil\nWACC_BACKEND_USER_TOKEN=leak\nWACC_BACKEND_TOKEN=leak\n"
+                         "WACC_EMPTY=\nnot a line\n", encoding="utf-8")
+            env = {"WACC_ALREADY": "env"}
+            applied = load_env_file(f, env)
+        self.assertEqual(sorted(applied), ["WACC_LOCAL_LLM_MODEL", "WACC_LOCAL_LLM_URL"])
+        self.assertEqual(env["WACC_LOCAL_LLM_MODEL"], "m1")
+        self.assertEqual(env["WACC_ALREADY"], "env")
+        for bad in ("PATH", "WACC_BACKEND_USER_TOKEN", "WACC_BACKEND_TOKEN", "WACC_EMPTY"):
+            self.assertNotIn(bad, env)
+
+    def test_missing_file_is_fine(self):
+        from wacc_backend.config import load_env_file
+        self.assertEqual(load_env_file("/nonexistent/llm.env", {}), [])
+
+
 class SecurityTests(unittest.TestCase):
     def test_token_created_once_and_reused(self):
         with tempfile.TemporaryDirectory() as d:

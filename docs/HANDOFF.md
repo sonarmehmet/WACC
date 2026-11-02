@@ -79,3 +79,4 @@ Mesajlar güvenilmeyen girdidir; güvenlik kuralları mesajla aşılamaz. Acil d
 - `pytest`, `unittest`, `flutter test/build`, `dart test` artık **onay ister** (ajan test dosyası yazıp kod çalıştıramasın). Auto-run için `WACC_EXEC_AUTO_CODE=1`. Backend 100 test (Windows 101).
 - Flutter CI işi ve Windows betik testleri (backup/stop/resume/check_env) eklendi, yeşil.
 - Sıradaki boş işler: Claude 3 → onay ekranları (web + Flutter, backend 8800 vekili); Gemini → T-0007; masaüstü arayüzü sahipsiz; gerçek LLM denenmedi.
+- Masaüstü paneli (`run_desktop.bat`) ve model bağlantı testi (`check_llm.bat`, `docs/LOCAL_LLM.md`, `data/llm.env`) eklendi. Gerçek Ollama ile ilk deneme kullanıcıdadır; yol sahte HTTP sunucusuyla test edildi.

@@ -1,6 +1,6 @@
 import sys
 
-from .config import load_settings
+from .config import ROOT, load_env_file, load_settings
 
 
 def main() -> int:
@@ -8,6 +8,7 @@ def main() -> int:
     from .app import create_app
     from .security import get_or_create_user_token
 
+    load_env_file(ROOT / "data" / "llm.env")  # optional, git-ignored: local/cloud model settings
     settings = load_settings()
     if settings.host not in ("127.0.0.1", "localhost"):
         print("WARNING: binding beyond localhost. Use a firewall/VPN; the token is the only protection.",
