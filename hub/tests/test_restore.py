@@ -12,6 +12,14 @@ from wacc_hub.restore import RestoreError, backup_databases, restore  # noqa: E4
 from wacc_hub.service import Hub  # noqa: E402
 
 
+def scalar(path, sql):
+    conn = sqlite3.connect(str(path))
+    try:
+        return conn.execute(sql).fetchone()[0]
+    finally:
+        conn.close()
+
+
 def make_backend_db(path, marker):
     conn = sqlite3.connect(str(path))
     conn.executescript("CREATE TABLE jobs(id INTEGER); CREATE TABLE approvals(id INTEGER); "
@@ -47,18 +55,15 @@ class RestoreTests(unittest.TestCase):
         conn.execute("UPDATE marker SET v='changed'")
         conn.commit()
         conn.close()
-        self.hub.close() if hasattr(self.hub, "close") else None
 
         res = restore("hub_20261102_120000.db", self.backups, self.targets, self.data, self.stopped)
         restore("backend_20261102_120000.db", self.backups, self.targets, self.data, self.stopped)
         self.assertTrue(res["previous_kept_as"].startswith("pre-restore-"))
         self.assertTrue((self.data / res["previous_kept_as"]).exists())
         self.assertEqual(Hub(str(self.targets["hub"])).list_tasks(owner="claude2"), [])
-        self.assertEqual(sqlite3.connect(str(self.backend_db)).execute("SELECT v FROM marker").fetchone()[0], "original")
+        self.assertEqual(scalar(self.backend_db, "SELECT v FROM marker"), "original")
         # the replaced database is kept, with the post-backup data still in it
-        kept = sqlite3.connect(str(self.data / res["previous_kept_as"]))
-        self.assertEqual(kept.execute("SELECT count(*) FROM tasks WHERE title='after backup'").fetchone()[0], 1)
-        kept.close()
+        self.assertEqual(scalar(self.data / res["previous_kept_as"], "SELECT count(*) FROM tasks WHERE title='after backup'"), 1)
 
     def test_refuses_while_service_is_running(self):
         backup_databases(self.targets, self.backups, "20261102_120000")
@@ -85,7 +90,7 @@ class RestoreTests(unittest.TestCase):
             restore("hub_20261102_120002.db", self.backups, self.targets, self.data, self.stopped)
         self.assertIn("tablolar", str(ctx.exception))
         self.assertEqual(list(self.data.glob("pre-restore-*")), [])
-        self.assertEqual(sqlite3.connect(str(self.backend_db)).execute("SELECT v FROM marker").fetchone()[0], "original")
+        self.assertEqual(scalar(self.backend_db, "SELECT v FROM marker"), "original")
 
     def test_restore_when_target_is_missing_just_restores(self):
         backup_databases(self.targets, self.backups, "20261102_120000")

@@ -13,5 +13,6 @@ if "%NAME%"=="" (
 )
 echo [WACC] DIKKAT: once tum WACC pencerelerini kapatin. Mevcut veritabani data\pre-restore-... olarak saklanir.
 ".venv\Scripts\python.exe" -m wacc_hub restore "%NAME%"
+set "RC=%errorlevel%"
 if not defined WACC_NO_PAUSE pause
-endlocal
+endlocal & exit /b %RC%
