@@ -37,6 +37,10 @@ def _job(row) -> dict:
     return d
 
 
+class PermanentJobError(Exception):
+    """Raised by a handler when retrying cannot help (denied action, bad payload, approval needed)."""
+
+
 class TaskEngine:
     def __init__(self, storage: Storage):
         self.storage = storage
@@ -205,6 +209,8 @@ class TaskEngine:
             return self.fail(job["id"], worker, f"No handler for kind {job['kind']!r}", retry=False)
         try:
             result = handler(job)
+        except PermanentJobError as exc:
+            return self.fail(job["id"], worker, str(exc), retry=False)
         except Exception as exc:  # a handler crash must never kill the engine
             return self.fail(job["id"], worker, f"{type(exc).__name__}: {exc}")
         return self.complete(job["id"], worker, result)
