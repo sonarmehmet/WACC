@@ -96,7 +96,7 @@ jobs:
 
   flutter:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: mobile
@@ -106,7 +106,8 @@ jobs:
         with:
           channel: stable
           cache: true
-      - run: flutter create --platforms=android . --project-name wacc_mobile
+      - run: python3 tool/prepare_android.py
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
+      - run: flutter build apk --debug

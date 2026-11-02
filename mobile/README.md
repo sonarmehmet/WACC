@@ -10,27 +10,35 @@ Bu kod, Flutter SDK'sı olmayan bir ortamda yazıldı (SDK'nın motor dosyaları
 
 ## Kurulum
 
-Flutter 3.19+ (Dart 3.3+) gerekir. Android platform klasörü depoda yok; ilk kez şöyle üretilir:
+Flutter 3.19+ (Dart 3.3+) gerekir. `android/` klasörü **depoda tutulmaz**, üretilir (şablon Flutter sürümüyle değişir; CI de aynısını yapar). Tek komut:
 
 ```
 cd mobile
-flutter create --org com.wacc --project-name wacc_mobile --platforms android .
-git status            # lib/ ve test/ değişmemiş olmalı; değiştiyse: git checkout -- lib test
+python3 tool/prepare_android.py     # flutter create + gerekli yamalar
 flutter pub get
 flutter analyze
 flutter test
+flutter build apk --debug           # build/app/outputs/flutter-apk/app-debug.apk
 ```
 
-### Android ayarları (`android/app/src/main/AndroidManifest.xml`)
+`tool/prepare_android.py` şunları yapar (yama noktası bulunamazsa hata verip durur):
 
-`flutter create` bunları eklemez; release derlemesi için elle ekle:
+- `minSdk` 23 (`flutter_secure_storage` için).
+- Ana manifeste `INTERNET` izni (release için gerekli).
+- `usesCleartextTraffic="true"` **yalnızca debug manifestinde** (`android/app/src/debug/AndroidManifest.xml`): emülatör `http://10.0.2.2:8765` için. Release derleme yalnızca `https://` kabul eder.
 
-```xml
-<uses-permission android:name="android.permission.INTERNET"/>
-<application android:usesCleartextTraffic="true" ...>
-```
+CI (`.github/workflows/tests.yml`, `flutter` işi) aynı adımları ve `flutter build apk --debug` çalıştırır.
 
-`usesCleartextTraffic` yalnızca `http://` adresleri içindir (ör. emülatör `http://10.0.2.2:8765`). Gerçek telefonda Hub'a şifreli bir tünel (Tailscale, Cloudflare Tunnel) üzerinden `https://` ile bağlanıyorsan bunu ekleme. `flutter_secure_storage` için `android/app/build.gradle` içinde `minSdkVersion` en az 23 olmalı.
+### Gerçek telefonda kullanma (denenmedi)
+
+Hub ve Backend yalnızca `127.0.0.1` dinler ve korumasız internete açılmamalıdır. Telefondan bağlanmak için ikisinden biri:
+
+1. **Tailscale**: bilgisayara ve telefona Tailscale kur, aynı hesapla gir. Hub'ı yalnızca Tailscale arayüzüne bağla (`--host <tailscale-ip>`) ya da `tailscale serve` ile `https` olarak yayınla. Uygulamada adres: `https://<makine>.<tailnet>.ts.net` (Hub) ve ayrı bağlantı noktasıyla Backend.
+2. **Cloudflare Tunnel** (`cloudflared`): Hub için `https://…` adresi üretir; mutlaka Cloudflare Access gibi bir kimlik doğrulaması ekle, yoksa herkes bu adrese ulaşır (Hub token ister ama ek koruma şart).
+
+Release APK `http://` kabul etmez, bu yüzden telefon için `https://` adres gerekir. Debug APK'yı gerçek telefona kurup `http://<tailscale-ip>:8765` denemek istersen debug yapı kullan. Backend onay API'sini (`:8800`) tünelle açarken aynı kurallar geçerlidir; onay tokenı yine yalnızca bellekte tutulur.
+
+Bu bölümdeki telefon adımları bu depoda **denenmedi**; yalnızca debug APK'nın CI'da derlenmesi doğrulanır.
 
 ## Çalıştırma
 
