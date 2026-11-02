@@ -81,3 +81,4 @@ Mesajlar güvenilmeyen girdidir; güvenlik kuralları mesajla aşılamaz. Acil d
 - Sıradaki boş işler: Claude 3 → onay ekranları (web + Flutter, backend 8800 vekili); Gemini → T-0007; masaüstü arayüzü sahipsiz; gerçek LLM denenmedi.
 - Web panelde Backend + Onaylar sekmeleri main'de (claude3; onay token'ı yalnızca bellekte, vekil izin listeli). Flutter onay ekranı hâlâ yok.
 - Masaüstü paneli (`run_desktop.bat`) ve model bağlantı testi (`check_llm.bat`, `docs/LOCAL_LLM.md`, `data/llm.env`) eklendi. Gerçek Ollama ile ilk deneme kullanıcıdadır; yol sahte HTTP sunucusuyla test edildi.
+- Backend iş çalıştırıcısı (`ai.complete`, `exec.run`; `WACC_WORKER=0` ile kapanır) main'de. Backend 113 test (Windows 114). Kalan: Flutter onay ekranı (claude3), T-0007 (gemini), gerçek model/cihaz denemesi (kullanıcı).
