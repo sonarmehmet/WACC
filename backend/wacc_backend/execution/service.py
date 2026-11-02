@@ -46,13 +46,15 @@ class EmergencyStop:
 
 class ExecutionService:
     def __init__(self, storage: Storage, roots: Iterable[Path], executor: Executor, stop: EmergencyStop,
-                 approvals: Optional[Approvals] = None, network_allowlist=DEFAULT_NETWORK_ALLOWLIST):
+                 approvals: Optional[Approvals] = None, network_allowlist=DEFAULT_NETWORK_ALLOWLIST,
+                 auto_run_code: bool = False):
         self.storage = storage
         self.roots = [Path(r) for r in roots]
         self.executor = executor
         self.stop = stop
         self.approvals = approvals or stop.approvals
         self.network_allowlist = tuple(network_allowlist)
+        self.auto_run_code = auto_run_code
 
     def submit(self, agent: str, action: dict, approval_id: Optional[int] = None) -> dict:
         agent = (agent or "").strip()
@@ -63,7 +65,7 @@ class ExecutionService:
                                  "DENIED", "emergency stop active")
             raise StorageError("EMERGENCY_STOP", "Emergency stop is active; only the user can lift it")
 
-        decision = classify(action, self.roots, self.network_allowlist, requested_by=agent)
+        decision = classify(action, self.roots, self.network_allowlist, requested_by=agent, auto_run_code=self.auto_run_code)
         base = {"class": decision.action_class, "summary": decision.summary}
 
         if decision.verdict == DENY:

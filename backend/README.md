@@ -50,7 +50,7 @@ Her makine eylemi tek kapıdan geçer: `POST /exec` → acil durdurma kontrolü 
 - `GET /exec/audit`: yalnızca eklenir (veritabanı tetikleyicileri güncelleme/silmeyi engeller), sırlar maskelenir.
 
 Bilinen sınırlar (dürüst not):
-1. `python -m pytest` otomatik izinlidir ve proje içindeki test dosyaları kod çalıştırır; bir ajan önce test dosyası yazıp sonra çalıştırarak kullanıcı yetkisiyle kod çalıştırabilir. Belgedeki izin listesi bunu kabul ediyor; istenirse `pytest` de onaya bağlanır.
+1. Proje kodu çalıştıran komutlar (`python -m pytest/unittest`, `flutter test`, `flutter build ...`, `dart test`) artık **onay ister** (bir ajan test dosyası yazıp çalıştırarak kod çalıştıramasın diye). Her çalıştırma kendi onayını ister; sık çalıştırmak istersen backend'i `WACC_EXEC_AUTO_CODE=1` ile başlat (bu riski bilerek kabul etmek demektir).
 2. Ajan kimliği (`agent` alanı) istemcinin beyanıdır; tüm ajanlar aynı ajan token'ını paylaşır. Onay yine de eylemin hash'ine bağlıdır.
 3. Backend yalnızca kendisi üzerinden gelen eylemleri denetler. Ajanın kendi shell'i (ör. Claude Code oturumu) bu kapıdan geçmez.
 4. Windows'ta (taskkill ile süreç ağacı sonlandırma, farklı sürücü, junction) denenmedi; testler Linux'ta çalıştı.

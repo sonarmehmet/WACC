@@ -16,7 +16,8 @@ Durum: **ONAYLANDI (2026-10-31, kullanıcı).** T-0009 bu belgeye göre `backend
 |---|---|---|
 | `READ` | `C:\WACC` içinde dosya/klasör okuma, `git status`, `git log` | Otomatik, denetim kaydı |
 | `WRITE_PROJECT` | `C:\WACC` içinde dosya yazma/düzenleme, `git add/commit` | Otomatik, denetim kaydı, kilit sistemine uyar |
-| `RUN_ALLOWLIST` | `python`, `git`, `flutter`, `dart`, `adb`, `node` (sabit alt komut listesiyle) | Otomatik, argüman doğrulaması + zaman aşımı |
+| `RUN_ALLOWLIST` | `python`, `git`, `flutter`, `dart`, `adb`, `node` (sabit alt komut listesiyle; **proje kodu çalıştıranlar hariç**) | Otomatik, argüman doğrulaması + zaman aşımı |
+| Proje kodu çalıştıran komutlar | `pytest`, `unittest`, `flutter test`, `flutter build`, `dart test` | **Onay gerekir** (v0.2 değişikliği); `WACC_EXEC_AUTO_CODE=1` ile otomatik yapılabilir |
 | `INSTALL` | `pip`, `npm`, `flutter pub` ile paket kurma | **Onay gerekir** (paket adı + sürüm gösterilir) |
 | `NETWORK` | Allowlist'teki alan adlarına istek (paket kayıtları, GitHub) | Otomatik; diğer alan adları onay gerektirir |
 | `PUBLISH` | `git push`, uygulama yayını | **Onay gerekir** |
