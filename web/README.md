@@ -14,7 +14,7 @@ Hafif, derleme gerektirmeyen yerel panel. Düz HTML/CSS/JS ve yalnızca standart
    ```
 
    Panel `http://127.0.0.1:8780` adresinde açılır. Seçenekler: `--port 8790`, `--hub http://127.0.0.1:8765` (ya da `WACC_WEB_PORT`, `WACC_HUB_URL` ortam değişkenleri).
-3. Sağ üstteki alana kendi tokenını yapıştır ve **Bağlan**'a bas. Token `data/tokens.json` içindedir; panel için `user` tokenını kullan. Token yalnızca bu tarayıcının `localStorage` alanında tutulur, **Unut** ile silinir.
+3. Sağ üstteki alana kendi tokenını yapıştır ve **Bağlan**'a bas. Token `data/tokens.json` içindedir; panel için `user` tokenını kullan. **Hatırla** kutusu varsayılan olarak kapalıdır: token yalnızca bu sekmenin `sessionStorage` alanında durur ve sekme kapanınca silinir. Kutuyu işaretlersen token bu tarayıcının `localStorage` alanında kalıcı saklanır (`user` tokenı onay verebilen tek token olduğu için yalnızca kendi bilgisayarında işaretle). **Unut** her iki yerden de siler.
 
 ## Ne gösterir / ne yapar
 
