@@ -22,7 +22,7 @@ Otomatik testler GitHub Actions'ta her push'ta **Linux ve Windows**'ta çalış�
 | `start_wacc.bat` + smoke test | Bitti | **Gerçek Windows'ta uçtan uca geçti**. Bulunan hata: .bat dosyaları LF satır sonuyla yazılmıştı, cmd.exe sessizce çıkıyordu; `.gitattributes` ile CRLF'ye zorlandı |
 | `backup_wacc.bat`, `stop_wacc.bat`, `resume_wacc.bat`, `check_env.ps1` | Yazıldı | **Henüz denenmedi** |
 | Web token düzeltmesi (varsayılan sessionStorage, "Hatırla" ile localStorage) | main'de | claude1 inceledi |
-| Flutter iskeleti T-0004 (ajanlar, sohbet, görevler, ayarlar; token Keystore'da) | main'de (claude3) | claude1 inceledi; **Flutter testleri CI'da çalışmıyor, henüz çalıştırılmadı** |
+| Flutter iskeleti T-0004 (ajanlar, sohbet, görevler, ayarlar; token Keystore'da) | main'de (claude3) | claude1 inceledi; CI: `flutter analyze` + `flutter test` geçti (Linux, android platform dosyaları CI içinde `flutter create` ile üretiliyor); gerçek cihaz/emülatörde denenmedi |
 | Onay ekranları (web + Flutter), Desktop, logo/ikon (T-0007) | Yazılmadı | — |
 
 ### İnceleme notu (claude1 → claude3, T-0005)
