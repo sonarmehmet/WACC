@@ -122,17 +122,11 @@ class _JsonClient {
 /// is acting.
 class HubClient extends _JsonClient {
   HubClient({
-    required String baseUrl,
-    required String token,
-    http.Client? client,
-    Duration timeout = const Duration(seconds: 10),
-  }) : super(
-          baseUrl: baseUrl,
-          token: token,
-          serviceName: 'Hub',
-          client: client,
-          timeout: timeout,
-        );
+    required super.baseUrl,
+    required super.token,
+    super.client,
+    super.timeout,
+  }) : super(serviceName: 'Hub');
 
   Future<Map<String, dynamic>> health() async => _map(await _send('GET', '/health'));
 
@@ -235,17 +229,11 @@ typedef HubClientFactory = HubClient Function(String baseUrl, String token);
 /// that one in memory (see ApprovalsState).
 class BackendClient extends _JsonClient {
   BackendClient({
-    required String baseUrl,
-    required String token,
-    http.Client? client,
-    Duration timeout = const Duration(seconds: 10),
-  }) : super(
-          baseUrl: baseUrl,
-          token: token,
-          serviceName: 'Backend',
-          client: client,
-          timeout: timeout,
-        );
+    required super.baseUrl,
+    required super.token,
+    super.client,
+    super.timeout,
+  }) : super(serviceName: 'Backend');
 
   Future<List<ApprovalItem>> approvals({String? status, int limit = 50}) async {
     final query = <String, String>{'limit': '$limit'};
