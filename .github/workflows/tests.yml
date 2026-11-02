@@ -65,6 +65,19 @@ jobs:
           if ($ready) {
             python -X utf8 scripts/smoke_test.py
             $code = $LASTEXITCODE
+            if ($code -eq 0) {
+              $env:WACC_NO_PAUSE = "1"
+              $flag = "data\EMERGENCY_STOP"
+              $ErrorActionPreference = "Continue"
+              & cmd /c backup_wacc.bat; Write-Host "backup exit $LASTEXITCODE"
+              if (-not (Get-ChildItem backups -ErrorAction SilentlyContinue)) { Write-Host "FAIL: backups empty"; $code = 1 }
+              & cmd /c stop_wacc.bat; Write-Host "stop exit $LASTEXITCODE"
+              if (-not (Test-Path $flag)) { Write-Host "FAIL: stop did not create $flag"; $code = 1 }
+              & cmd /c resume_wacc.bat; Write-Host "resume exit $LASTEXITCODE"
+              if (Test-Path $flag) { Write-Host "FAIL: resume did not remove $flag"; $code = 1 }
+              powershell -ExecutionPolicy Bypass -File scripts\check_env.ps1 | Select-Object -First 30
+              if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: check_env exit $LASTEXITCODE"; $code = 1 }
+            }
           } else {
             foreach ($u in $urls) { try { $r = Invoke-WebRequest -UseBasicParsing -Uri $u -TimeoutSec 3; Write-Host "$u -> $($r.StatusCode)" } catch { Write-Host "$u -> FAILED" } }
           }
