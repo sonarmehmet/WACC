@@ -206,6 +206,13 @@ void main() {
       return (state, log);
     }
 
+    Future<void> tapVisible(WidgetTester tester, Finder finder) async {
+      await tester.ensureVisible(finder);
+      await tester.pumpAndSettle();
+      await tester.tap(finder);
+      await tester.pumpAndSettle();
+    }
+
     testWidgets('shows the raw action; buttons are disabled without the user token', (tester) async {
       await pump(tester);
       expect(find.textContaining('rm -rf build'), findsWidgets);
@@ -223,8 +230,7 @@ void main() {
       expect(find.widgetWithText(TextField, 'Kullanıcı tokenı'), findsOneWidget);
       expect(tester.widget<TextField>(find.widgetWithText(TextField, 'Kullanıcı tokenı')).controller!.text, '');
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Onayla'));
-      await tester.pumpAndSettle();
+      await tapVisible(tester, find.widgetWithText(FilledButton, 'Onayla'));
       expect(find.text('Bu eylemi onaylıyor musun?'), findsOneWidget);
       await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Onayla')));
       await tester.pumpAndSettle();
@@ -237,8 +243,7 @@ void main() {
       await tester.enterText(find.widgetWithText(TextField, 'Kullanıcı tokenı'), 'tok-human');
       await tester.tap(find.text('Kullan'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Reddet'));
-      await tester.pumpAndSettle();
+      await tapVisible(tester, find.widgetWithText(OutlinedButton, 'Reddet'));
       expect(log, ['deny:7']);
     });
 
@@ -247,8 +252,7 @@ void main() {
       await tester.enterText(find.widgetWithText(TextField, 'Kullanıcı tokenı'), 'tok-agent');
       await tester.tap(find.text('Kullan'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Reddet'));
-      await tester.pumpAndSettle();
+      await tapVisible(tester, find.widgetWithText(OutlinedButton, 'Reddet'));
       expect(find.textContaining('ajan tokenı onaylayamaz'), findsOneWidget);
       expect(log, isEmpty);
     });
