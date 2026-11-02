@@ -73,6 +73,11 @@ jobs:
               $ErrorActionPreference = "Continue"
               & cmd /c backup_wacc.bat; Write-Host "backup exit $LASTEXITCODE"
               if (-not (Get-ChildItem backups -ErrorAction SilentlyContinue)) { Write-Host "FAIL: backups empty"; $code = 1 }
+              $hubBackup = (Get-ChildItem backups -Filter "hub_*.db" | Sort-Object Name | Select-Object -Last 1).Name
+              $beforeSize = (Get-Item data\hub.db).Length
+              & cmd /c restore_wacc.bat $hubBackup; Write-Host "restore (services running) exit $LASTEXITCODE"
+              if ($LASTEXITCODE -eq 0) { Write-Host "FAIL: restore must be refused while services run"; $code = 1 }
+              if (Get-ChildItem data -Filter "pre-restore-*") { Write-Host "FAIL: refused restore changed data"; $code = 1 }
               & cmd /c stop_wacc.bat; Write-Host "stop exit $LASTEXITCODE"
               if (-not (Test-Path $flag)) { Write-Host "FAIL: stop did not create $flag"; $code = 1 }
               & cmd /c resume_wacc.bat; Write-Host "resume exit $LASTEXITCODE"
