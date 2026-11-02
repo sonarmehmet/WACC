@@ -64,3 +64,10 @@ Add new tables as new entries in `storage.MIGRATIONS`; never edit an existing mi
 - `ai.complete`: `{prompt, system?, prefer?, provider?, max_tokens?}` → orchestrator sonucu.
 - `exec.run`: `{action, approval_id?}` → `/exec` ile **aynı** politika, onay, denetim ve acil durdurma denetimlerinden geçer ("worker" adıyla). Onay gerekiyorsa iş yeniden denemeden başarısız olur ve onay numarasını yazar; onayladıktan sonra aynı işi `approval_id` ile tekrar kuyruğa ekle.
 Not: iş yükü (`payload`) veritabanında saklanır; içine sır koyma.
+
+## Ajan başına token (v0.3)
+`data/backend_tokens.json` (git'e girmez, ilk açılışta üretilir): `claude1`, `claude2`, `claude3`, `gemini` için ayrı token. Token çağıranın kimliğini belirler:
+- `POST /exec`: gövdedeki `agent` alanı token'daki adla **aynı olmak zorunda** (aksi 403); denetim kaydı ve onay sahipliği bu ada bağlıdır. Eski ortak token (`backend_token.txt`) eylem gönderemez (403), yalnızca okuma ve acil durdurma içindir. Kullanıcı token'ı test için istediği adla gönderebilir.
+- `POST /agents/{ad}/heartbeat`: yalnızca kendi adın. `POST /agents/{ad}/enabled`: yalnızca kullanıcı.
+- İş kuyruğundaki `worker` adı hâlâ serbesttir (dış işçiler keyfi ad kullanabilir); başka bir ajanın işini tamamlama riski bilinen sınırdır.
+- Hâlâ geçerli sınır: token'lar `data/` içinde durur; aynı bilgisayarda kendi kabuğunu çalıştıran bir ajan dosyayı okuyabilir (backend yalnızca kendisine gelen istekleri korur).

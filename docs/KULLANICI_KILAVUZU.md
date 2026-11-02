@@ -29,7 +29,8 @@ Adresler yalnızca senin bilgisayarından erişilebilir. Pencereleri kapatırsan
 |---|---|---|---|
 | **Onay token'ı** | Backend penceresinde, her başlatışta yeni yazılır; **dosyaya yazılmaz** | Yalnızca **sen**: onaylama, reddetme, acil durdurmayı kaldırma | **Kimseyle ve hiçbir ajanla paylaşma.** Ajana verirsen kendi kendini onaylayabilir |
 | Hub token'ları | `data\tokens.json` (her ajan için bir satır, senin için `user`) | Ajanlar ve paneller Hub'a bağlanırken | Başkasına gösterme |
-| Backend ajan token'ı | `data\backend_token.txt` | Ajanlar/paneller backend'i okurken | Başkasına gösterme |
+| Backend ajan token'ları | `data\backend_tokens.json` (her ajan için bir satır) | Her ajan backend'e **kendi** token'ıyla bağlanır; eylem göndermek (`/exec`) yalnızca kendi adıyla mümkün | Başkasına gösterme |
+| Backend ortak okuma token'ı | `data\backend_token.txt` | Paneller backend'i okurken ve acil durdurma için; **eylem gönderemez** | Başkasına gösterme |
 
 `data\` klasörü GitHub'a gönderilmez. Token'ı ekran görüntüsüne, sohbete ya da e-postaya koyma.
 

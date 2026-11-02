@@ -47,6 +47,28 @@ class EnvFileTests(unittest.TestCase):
         self.assertEqual(load_env_file("/nonexistent/llm.env", {}), [])
 
 
+class AgentTokenTests(unittest.TestCase):
+    def test_tokens_are_created_per_agent_persisted_and_unique(self):
+        from wacc_backend.security import AGENT_NAMES, get_or_create_agent_tokens
+        with tempfile.TemporaryDirectory() as d:
+            s = load_settings({"WACC_DATA_DIR": d})
+            first = get_or_create_agent_tokens(s)
+            self.assertEqual(set(first), set(AGENT_NAMES))
+            self.assertEqual(len(set(first.values())), len(AGENT_NAMES))
+            self.assertEqual(get_or_create_agent_tokens(s), first)
+            (Path(d) / "backend_tokens.json").write_text('{"claude1": "keep", "evil": "x"}', encoding="utf-8")
+            again = get_or_create_agent_tokens(s)
+            self.assertEqual(again["claude1"], "keep")
+            self.assertNotIn("evil", again)
+            self.assertEqual(set(again), set(AGENT_NAMES))
+
+    def test_corrupt_file_is_replaced(self):
+        from wacc_backend.security import AGENT_NAMES, get_or_create_agent_tokens
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "backend_tokens.json").write_text("not json", encoding="utf-8")
+            self.assertEqual(set(get_or_create_agent_tokens(load_settings({"WACC_DATA_DIR": d}))), set(AGENT_NAMES))
+
+
 class SecurityTests(unittest.TestCase):
     def test_token_created_once_and_reused(self):
         with tempfile.TemporaryDirectory() as d:
