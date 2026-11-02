@@ -20,7 +20,7 @@ Otomatik testler GitHub Actions'ta her push'ta **Linux ve Windows**'ta çalış�
 | Yürütme backend'i T-0009 (`/exec/*`, onay akışı, denetim, paylaşımlı `data/EMERGENCY_STOP`) | Bitti (claude1) | CI: gerçek süreç ağacı sonlandırma Windows'ta da geçti; sınırlar için `backend/README.md` |
 | Web panel T-0005 (claude3) | main'de | claude1 inceledi; CI: Linux + Windows |
 | `start_wacc.bat` + smoke test | Bitti | **Gerçek Windows'ta uçtan uca geçti**. Bulunan hata: .bat dosyaları LF satır sonuyla yazılmıştı, cmd.exe sessizce çıkıyordu; `.gitattributes` ile CRLF'ye zorlandı |
-| `backup_wacc.bat`, `stop_wacc.bat`, `resume_wacc.bat`, `check_env.ps1` | Yazıldı | **Henüz denenmedi** |
+| `backup_wacc.bat`, `stop_wacc.bat`, `resume_wacc.bat`, `check_env.ps1` | Bitti | CI: gerçek Windows e2e içinde çalıştırılıyor (yedek alındı, durdurma bayrağı oluştu/kalktı; betikler `WACC_NO_PAUSE` ile pause atlar) |
 | Web token düzeltmesi (varsayılan sessionStorage, "Hatırla" ile localStorage) | main'de | claude1 inceledi |
 | Flutter iskeleti T-0004 (ajanlar, sohbet, görevler, ayarlar; token Keystore'da) | main'de (claude3) | claude1 inceledi; CI: `flutter analyze` + `flutter test` geçti (Linux, android platform dosyaları CI içinde `flutter create` ile üretiliyor); gerçek cihaz/emülatörde denenmedi |
 | Onay ekranları (web + Flutter), Desktop, logo/ikon (T-0007) | Yazılmadı | — |

@@ -10,7 +10,7 @@ Hibrit (yerel + bulut) AI geliştirme ekibi sistemi. Üç Claude geliştirici ve
 | Görev / kilit / karar / checkpoint sistemi | Yazıldı |
 | `tasks/*.md` otomatik özetler | Yazıldı |
 | `start_wacc.bat` (Hub + backend + web panel) | Gerçek Windows'ta uçtan uca doğrulandı |
-| Yedek, acil durdurma betikleri | Yazıldı, henüz denenmedi |
+| Yedek, acil durdurma betikleri | Gerçek Windows CI içinde denendi |
 | Backend: Task Engine, Agent Manager, AI Orchestrator, Memory, Yürütme (onaylı) | Yazıldı, CI'da test edildi |
 | Flutter uygulaması, Web panel | Claude 3 görevi (T-0004, T-0005) |
 
