@@ -121,6 +121,7 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
     execution = ExecutionService(storage, settings.exec_roots, executor or RealExecutor(settings.exec_roots), stop, approvals,
                                 auto_run_code=settings.exec_auto_code)
     app = FastAPI(title="WACC Backend", version=__version__)
+    app.state.engine, app.state.orchestrator, app.state.execution = engine, orchestrator, execution
 
     def auth(x_wacc_token: str = Header(default="")) -> str:
         """Returns the caller's role: 'user' (human, can approve) or 'agent'."""

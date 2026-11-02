@@ -58,3 +58,9 @@ Bilinen sınırlar (dürüst not):
 ## Next
 Web panelde onay ekranı (claude3), Flutter onay ekranı, ajanların `/exec`'i kullanması.
 Add new tables as new entries in `storage.MIGRATIONS`; never edit an existing migration.
+
+## İş çalıştırıcısı (worker)
+`python -m wacc_backend` ile açılan arka plan işçisi (kapatmak: `WACC_WORKER=0`) `/jobs` kuyruğundan iki iş türünü yürütür:
+- `ai.complete`: `{prompt, system?, prefer?, provider?, max_tokens?}` → orchestrator sonucu.
+- `exec.run`: `{action, approval_id?}` → `/exec` ile **aynı** politika, onay, denetim ve acil durdurma denetimlerinden geçer ("worker" adıyla). Onay gerekiyorsa iş yeniden denemeden başarısız olur ve onay numarasını yazar; onayladıktan sonra aynı işi `approval_id` ile tekrar kuyruğa ekle.
+Not: iş yükü (`payload`) veritabanında saklanır; içine sır koyma.
