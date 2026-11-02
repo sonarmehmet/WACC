@@ -73,3 +73,20 @@ jobs:
           $ErrorActionPreference = "Continue"
           try { & taskkill /F /T /PID $p.Id *> $null } catch { }
           exit $code
+
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter create --platforms=android . --project-name wacc_mobile
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
