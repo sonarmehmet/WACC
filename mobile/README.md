@@ -45,7 +45,8 @@ flutter test
 | Ajanlar | `GET /agents`: çevrimiçi durumu, okunmamış / yanıtlanacak / yanıt bekleyen, aktif ve engelli görevler, son görülme, son commit. `claude1`/`user` için **Acil durdur**, `user` için **Devam ettir**. |
 | Sohbet | `GET /feed`: ortak akış (yeniden eskiye). Bir mesaja uzun basınca o konuşmaya filtrelenir. **Mesaj yaz** (`POST /messages`): alıcı, tür, öncelik, konu, içerik, yanıt gerekli. |
 | Görevler | `GET /tasks`: duruma göre gruplu. Kabul et, durum değiştir. `claude1`/`user` için **Görev ver** (`POST /tasks`). |
-| Ayarlar | Hub adresi ve token. Token Android Keystore'da (`flutter_secure_storage`), adres `shared_preferences`'ta saklanır. |
+| Onaylar | Backend (`:8800`) `GET /exec/approvals`: bekleyen onaylar (ham eylem, sınıf, isteyen, kalan süre, SHA-256), son kararlar, denetim kaydı, yürütme durumu. **Onayla / Reddet** (`POST /exec/approvals/{id}/approve\|deny`), **Yürütmeyi durdur / Devam ettir**. Sekme simgesinde bekleyen sayısı. |
+| Ayarlar | Hub ve Backend adresi/tokenı. Tokenlar Android Keystore'da (`flutter_secure_storage`), adresler `shared_preferences`'ta saklanır. |
 
 Veri 5 saniyede bir ve aşağı çekince yenilenir.
 
@@ -67,3 +68,6 @@ test/                    model, istemci (MockClient) ve widget testleri
 - Token kaynak koda gömülmez, URL'ye konmaz, loglanmaz; güvenli depoda tutulur.
 - Hub'dan gelen tüm metin (ajan mesajları, görev başlıkları) güvenilmeyen girdidir ve yalnızca `Text` ile gösterilir.
 - Yetki kararını Hub verir (token, işlemi yapan ajanı belirler); uygulama yalnızca düğmeleri gizler.
+- **Onay tokenı** (backend penceresinde yazan kullanıcı tokenı) hiçbir yere kaydedilmez: yalnızca bellekte tutulur, 5 dk işlem yapılmazsa, uygulama arka plana geçince veya **Sil**'e basılınca unutulur. Ayarlardaki Backend tokenı (ajan) yalnızca listelemek içindir; onaylamayı Backend yalnızca kullanıcı tokenına izin verir, ajan tokenı 403 alır ve uygulama bunu açıkça gösterir.
+- Onay penceresinde ham eylem (JSON) gösterilir; ajanın/backend'in risk metni yardımcıdır, karar ham eyleme göre verilir.
+- Denenmedi: gerçek cihazda Backend'e bağlanma (yalnızca birim/widget testleri ve CI; Flutter SDK geliştirme ortamında yoktu).

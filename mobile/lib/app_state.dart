@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import 'api/hub_client.dart';
+import 'approvals_state.dart';
 import 'models.dart';
 import 'settings.dart';
 
@@ -13,8 +14,14 @@ class AppState extends ChangeNotifier {
   AppState({
     required this.store,
     HubClientFactory? clientFactory,
+    BackendClientFactory? backendFactory,
     this.pollInterval = const Duration(seconds: 5),
-  }) : _factory = clientFactory ?? ((url, token) => HubClient(baseUrl: url, token: token));
+    Duration approvalIdleTimeout = const Duration(minutes: 5),
+  })  : _factory = clientFactory ?? ((url, token) => HubClient(baseUrl: url, token: token)),
+        approvals = ApprovalsState(factory: backendFactory, idleTimeout: approvalIdleTimeout);
+
+  /// Approval requests and decisions (Backend). Owned here so settings changes reach it.
+  final ApprovalsState approvals;
 
   final SettingsStore store;
   final HubClientFactory _factory;
@@ -45,11 +52,15 @@ class AppState extends ChangeNotifier {
   Future<void> start() async {
     settings = await store.load();
     _rebuildClient();
+    approvals.configure(settings);
     await refresh();
     final interval = pollInterval;
     if (interval != null && !_disposed) {
       _timer?.cancel();
-      _timer = Timer.periodic(interval, (_) => refresh());
+      _timer = Timer.periodic(interval, (_) {
+        refresh();
+        approvals.refresh();
+      });
     }
   }
 
@@ -69,6 +80,7 @@ class AppState extends ChangeNotifier {
     tasks = const [];
     conversationFilter = null;
     _rebuildClient();
+    approvals.configure(next);
     notifyListeners();
     await refresh();
   }
@@ -182,6 +194,7 @@ class AppState extends ChangeNotifier {
     _disposed = true;
     _timer?.cancel();
     _client?.close();
+    approvals.dispose();
     super.dispose();
   }
 }

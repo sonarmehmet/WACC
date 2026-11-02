@@ -15,6 +15,8 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _url;
   late final TextEditingController _token;
+  late final TextEditingController _backendUrl;
+  late final TextEditingController _backendToken;
   bool _saving = false;
 
   @override
@@ -22,12 +24,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _url = TextEditingController(text: widget.state.settings.baseUrl);
     _token = TextEditingController(text: widget.state.settings.token);
+    _backendUrl = TextEditingController(text: widget.state.settings.backendUrl);
+    _backendToken = TextEditingController(text: widget.state.settings.backendToken);
   }
 
   @override
   void dispose() {
     _url.dispose();
     _token.dispose();
+    _backendUrl.dispose();
+    _backendToken.dispose();
     super.dispose();
   }
 
@@ -37,9 +43,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _saving = true);
     final url = _url.text.trim().isEmpty ? defaultBaseUrl : _url.text.trim();
+    final backendUrl = _backendUrl.text.trim().isEmpty ? defaultBackendUrl : _backendUrl.text.trim();
     final token = forgetToken ? '' : _token.text.trim();
-    if (forgetToken) _token.clear();
-    await widget.state.updateSettings(Settings(baseUrl: url, token: token));
+    final backendToken = forgetToken ? '' : _backendToken.text.trim();
+    if (forgetToken) {
+      _token.clear();
+      _backendToken.clear();
+    }
+    await widget.state.updateSettings(
+      Settings(baseUrl: url, token: token, backendUrl: backendUrl, backendToken: backendToken),
+    );
     messenger.showSnackBar(
       SnackBar(content: Text(forgetToken ? 'Token silindi' : 'Kaydedildi')),
     );
@@ -79,6 +92,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
             labelText: 'Token (X-WACC-Token)',
             helperText: 'Telefonda güvenli depoda saklanır. Panel için user tokenını kullan.',
             helperMaxLines: 2,
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 20),
+        Text('Backend (onaylar)', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _backendUrl,
+          keyboardType: TextInputType.url,
+          autocorrect: false,
+          decoration: const InputDecoration(
+            labelText: 'Backend adresi',
+            helperText: 'Emülatörde http://10.0.2.2:8800 bilgisayardaki Backend\'e çıkar.',
+            helperMaxLines: 2,
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _backendToken,
+          obscureText: true,
+          autocorrect: false,
+          enableSuggestions: false,
+          decoration: const InputDecoration(
+            labelText: 'Backend tokenı (ajan, salt okuma)',
+            helperText: 'Onay listesini görmek için. Onaylamak için kullanıcı tokenı Onaylar '
+                'sekmesinde ayrıca girilir ve hiçbir yere kaydedilmez.',
+            helperMaxLines: 3,
             border: OutlineInputBorder(),
           ),
         ),

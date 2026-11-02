@@ -19,14 +19,14 @@ class HubException implements Exception {
   String toString() => 'HubException($code, $statusCode): $message';
 }
 
-/// Thin client for the Hub HTTP API (see hub/wacc_hub/api.py).
+/// Shared JSON-over-HTTP plumbing for the Hub and the Backend.
 ///
-/// The token is sent in the `X-WACC-Token` header and decides which agent is acting.
-/// It is never logged or put into a URL.
-class HubClient {
-  HubClient({
+/// The token is sent in the `X-WACC-Token` header and is never logged or put into a URL.
+class _JsonClient {
+  _JsonClient({
     required String baseUrl,
     required this.token,
+    required this.serviceName,
     http.Client? client,
     this.timeout = const Duration(seconds: 10),
   })  : baseUrl = baseUrl.trim().replaceAll(RegExp(r'/+$'), ''),
@@ -34,8 +34,105 @@ class HubClient {
 
   final String baseUrl;
   final String token;
+
+  /// Used in error messages ("Hub", "Backend").
+  final String serviceName;
   final Duration timeout;
   final http.Client _client;
+
+  void close() => _client.close();
+
+  // ------------------------------------------------------------------ plumbing
+
+  Future<dynamic> _send(
+    String method,
+    String path, {
+    Map<String, String>? query,
+    Object? body,
+  }) async {
+    final res = await _dispatch(method, path, query, body);
+    dynamic decoded;
+    if (res.bodyBytes.isNotEmpty) {
+      try {
+        decoded = jsonDecode(utf8.decode(res.bodyBytes));
+      } on FormatException {
+        decoded = null;
+      }
+    }
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw _errorFrom(res.statusCode, decoded);
+    }
+    return decoded;
+  }
+
+  Future<http.Response> _dispatch(
+    String method,
+    String path,
+    Map<String, String>? query,
+    Object? body,
+  ) async {
+    try {
+      final uri = Uri.parse('$baseUrl$path').replace(queryParameters: query);
+      final headers = <String, String>{'X-WACC-Token': token};
+      if (method == 'GET') {
+        return await _client.get(uri, headers: headers).timeout(timeout);
+      }
+      headers['Content-Type'] = 'application/json';
+      return await _client
+          .post(uri, headers: headers, body: body == null ? null : jsonEncode(body))
+          .timeout(timeout);
+    } on TimeoutException {
+      throw HubException('$serviceName zamanında yanıt vermedi', code: 'TIMEOUT');
+    } on FormatException {
+      throw HubException('$serviceName adresi geçersiz', code: 'BAD_URL');
+    } on Exception {
+      throw HubException("$serviceName'a ulaşılamıyor ($baseUrl)", code: 'UNREACHABLE');
+    }
+  }
+
+  static HubException _errorFrom(int status, dynamic decoded) {
+    var code = 'HTTP_$status';
+    var message = 'İstek başarısız ($status)';
+    if (decoded is Map && decoded['detail'] != null) {
+      final detail = decoded['detail'];
+      if (detail is Map) {
+        code = detail['code']?.toString() ?? code;
+        message = detail['message']?.toString() ?? message;
+      } else {
+        message = detail.toString();
+      }
+    }
+    if (status == 401) message = 'Token geçersiz';
+    return HubException(message, statusCode: status, code: code);
+  }
+
+  // Instance (not static) methods: static members are not inherited by HubClient/BackendClient.
+  Map<String, dynamic> _map(dynamic data) {
+    if (data is Map<String, dynamic>) return data;
+    throw const HubException('Beklenmeyen yanıt biçimi', code: 'BAD_RESPONSE');
+  }
+
+  List<Map<String, dynamic>> _list(dynamic data) {
+    if (data is List) return data.whereType<Map<String, dynamic>>().toList();
+    throw const HubException('Beklenmeyen yanıt biçimi', code: 'BAD_RESPONSE');
+  }
+}
+
+/// Thin client for the Hub HTTP API (see hub/wacc_hub/api.py). The token decides which agent
+/// is acting.
+class HubClient extends _JsonClient {
+  HubClient({
+    required String baseUrl,
+    required String token,
+    http.Client? client,
+    Duration timeout = const Duration(seconds: 10),
+  }) : super(
+          baseUrl: baseUrl,
+          token: token,
+          serviceName: 'Hub',
+          client: client,
+          timeout: timeout,
+        );
 
   Future<Map<String, dynamic>> health() async => _map(await _send('GET', '/health'));
 
@@ -127,82 +224,61 @@ class HubClient {
   Future<void> resume() async {
     await _send('POST', '/system/resume');
   }
-
-  void close() => _client.close();
-
-  // ------------------------------------------------------------------ plumbing
-
-  Future<dynamic> _send(
-    String method,
-    String path, {
-    Map<String, String>? query,
-    Object? body,
-  }) async {
-    final res = await _dispatch(method, path, query, body);
-    dynamic decoded;
-    if (res.bodyBytes.isNotEmpty) {
-      try {
-        decoded = jsonDecode(utf8.decode(res.bodyBytes));
-      } on FormatException {
-        decoded = null;
-      }
-    }
-    if (res.statusCode < 200 || res.statusCode >= 300) {
-      throw _errorFrom(res.statusCode, decoded);
-    }
-    return decoded;
-  }
-
-  Future<http.Response> _dispatch(
-    String method,
-    String path,
-    Map<String, String>? query,
-    Object? body,
-  ) async {
-    try {
-      final uri = Uri.parse('$baseUrl$path').replace(queryParameters: query);
-      final headers = <String, String>{'X-WACC-Token': token};
-      if (method == 'GET') {
-        return await _client.get(uri, headers: headers).timeout(timeout);
-      }
-      headers['Content-Type'] = 'application/json';
-      return await _client
-          .post(uri, headers: headers, body: body == null ? null : jsonEncode(body))
-          .timeout(timeout);
-    } on TimeoutException {
-      throw const HubException('Hub zamanında yanıt vermedi', code: 'TIMEOUT');
-    } on FormatException {
-      throw const HubException('Hub adresi geçersiz', code: 'BAD_URL');
-    } on Exception {
-      throw HubException("Hub'a ulaşılamıyor ($baseUrl)", code: 'UNREACHABLE');
-    }
-  }
-
-  static HubException _errorFrom(int status, dynamic decoded) {
-    var code = 'HTTP_$status';
-    var message = 'İstek başarısız ($status)';
-    if (decoded is Map && decoded['detail'] != null) {
-      final detail = decoded['detail'];
-      if (detail is Map) {
-        code = detail['code']?.toString() ?? code;
-        message = detail['message']?.toString() ?? message;
-      } else {
-        message = detail.toString();
-      }
-    }
-    if (status == 401) message = 'Token geçersiz';
-    return HubException(message, statusCode: status, code: code);
-  }
-
-  static Map<String, dynamic> _map(dynamic data) {
-    if (data is Map<String, dynamic>) return data;
-    throw const HubException('Beklenmeyen yanıt biçimi', code: 'BAD_RESPONSE');
-  }
-
-  static List<Map<String, dynamic>> _list(dynamic data) {
-    if (data is List) return data.whereType<Map<String, dynamic>>().toList();
-    throw const HubException('Beklenmeyen yanıt biçimi', code: 'BAD_RESPONSE');
-  }
 }
 
 typedef HubClientFactory = HubClient Function(String baseUrl, String token);
+
+/// Client for the Backend's execution/approval API (see backend/README.md).
+///
+/// Reading works with the Backend (agent) token. Deciding an approval and resuming execution
+/// need the user's own token, which the Backend prints in its window; this app only keeps
+/// that one in memory (see ApprovalsState).
+class BackendClient extends _JsonClient {
+  BackendClient({
+    required String baseUrl,
+    required String token,
+    http.Client? client,
+    Duration timeout = const Duration(seconds: 10),
+  }) : super(
+          baseUrl: baseUrl,
+          token: token,
+          serviceName: 'Backend',
+          client: client,
+          timeout: timeout,
+        );
+
+  Future<List<ApprovalItem>> approvals({String? status, int limit = 50}) async {
+    final query = <String, String>{'limit': '$limit'};
+    if (status != null) query['status'] = status;
+    final data = await _send('GET', '/exec/approvals', query: query);
+    return _list(data).map(ApprovalItem.fromJson).toList();
+  }
+
+  Future<ExecStatus> execStatus() async => ExecStatus.fromJson(_map(await _send('GET', '/exec/status')));
+
+  Future<List<AuditEntry>> audit({int limit = 50}) async {
+    final data = await _send('GET', '/exec/audit', query: {'limit': '$limit'});
+    return _list(data).map(AuditEntry.fromJson).toList();
+  }
+
+  /// User token only (the Backend enforces it).
+  Future<void> approve(int id) async {
+    await _send('POST', '/exec/approvals/$id/approve');
+  }
+
+  /// User token only (the Backend enforces it).
+  Future<void> deny(int id) async {
+    await _send('POST', '/exec/approvals/$id/deny');
+  }
+
+  Future<void> stopExec(String reason) async {
+    await _send('POST', '/exec/stop', body: {'reason': reason});
+  }
+
+  /// User token only (the Backend enforces it).
+  Future<void> resumeExec() async {
+    await _send('POST', '/exec/resume');
+  }
+}
+
+typedef BackendClientFactory = BackendClient Function(String baseUrl, String token);
