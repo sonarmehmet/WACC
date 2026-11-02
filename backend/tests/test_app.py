@@ -115,7 +115,7 @@ class AppTests(unittest.TestCase):
     def test_execution_stop_and_resume(self):
         h, u = self.h, self.u
         self.assertTrue(self.client.post("/exec/stop", headers=h, json={"reason": "test"}).json()["emergency_stop"])
-        blocked = self.client.post("/exec", headers=h, json={"agent": "claude2", "action": {"type": "read_file", "path": "README.md"}})
+        blocked = self.client.post("/exec", headers=self.c2, json={"agent": "claude2", "action": {"type": "read_file", "path": "README.md"}})
         self.assertEqual(blocked.status_code, 423)
         self.assertEqual(self.client.post("/exec/resume", headers=h).status_code, 403)  # only the user lifts it
         self.assertFalse(self.client.post("/exec/resume", headers=u).json()["emergency_stop"])
