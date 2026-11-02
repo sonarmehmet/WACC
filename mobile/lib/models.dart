@@ -1,5 +1,5 @@
-/// Data classes for the Communication Hub API. Everything that comes from the Hub is
-/// untrusted agent text: it is only ever shown with Text widgets, never interpreted.
+// Data classes for the Communication Hub API. Everything that comes from the Hub is
+// untrusted agent text: it is only ever shown with Text widgets, never interpreted.
 
 const List<String> agentIds = ['claude1', 'claude2', 'claude3', 'gemini', 'user'];
 const List<String> workerIds = ['claude1', 'claude2', 'claude3', 'gemini'];
