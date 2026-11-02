@@ -86,17 +86,12 @@ def seed(hub: Hub):
 
 
 def backup(hub: Hub):
+    from .restore import backup_databases
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     dest = ROOT / "backups"
-    dest.mkdir(exist_ok=True)
-    import sqlite3
-    src = sqlite3.connect(str(hub.db_path))
-    dst = sqlite3.connect(str(dest / f"hub_{stamp}.db"))
-    with dst:
-        src.backup(dst)
-    src.close()
-    dst.close()
-    result = {"db": f"backups/hub_{stamp}.db"}
+    dbs = {"hub": Path(hub.db_path), "backend": Path(hub.db_path).parent / "backend.db"}
+    made = backup_databases(dbs, dest, stamp)
+    result = {"db": made.get("hub"), "backend_db": made.get("backend")}
     if shutil.which("git") and (ROOT / ".git").exists():
         bundle = dest / f"wacc_{stamp}.bundle"
         proc = subprocess.run(["git", "-C", str(ROOT), "bundle", "create", str(bundle), "--all"],
@@ -114,7 +109,9 @@ def build_parser():
     sub.add_parser("init", help="create database, tokens and tasks/*.md")
     sub.add_parser("seed", help="create the initial backlog (idempotent)")
     sub.add_parser("render", help="regenerate tasks/*.md")
-    sub.add_parser("backup", help="DB copy + git bundle into backups/")
+    sub.add_parser("backup", help="DB copies (hub + backend) + git bundle into backups/")
+    s = sub.add_parser("restore", help="restore hub_*.db / backend_*.db from backups/ (services must be stopped)")
+    s.add_argument("name", help="file name inside backups/, e.g. hub_20261102_120000.db")
     sub.add_parser("retry", help="redeliver queued messages and alert on expired locks")
     sub.add_parser("agents", help="show agent overview")
     s = sub.add_parser("watch", help="print new messages/task changes for an agent (read-only, Ctrl+C to stop)")
@@ -186,6 +183,14 @@ def main(argv=None):
             _out(render_all(hub))
         elif c == "backup":
             _out(backup(hub))
+        elif c == "restore":
+            from .restore import RestoreError, restore
+            data_dir = Path(hub.db_path).parent
+            try:
+                _out(restore(args.name, ROOT / "backups", {"hub": Path(hub.db_path), "backend": data_dir / "backend.db"}, data_dir))
+            except RestoreError as exc:
+                print(f"HATA: {exc}", file=sys.stderr)
+                return 2
         elif c == "retry":
             _out({**hub.retry_undelivered(), "lock_alerts": hub.alert_expired_locks()})
         elif c == "agents":

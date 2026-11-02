@@ -46,6 +46,8 @@ Adresler yalnızca senin bilgisayarından erişilebilir. Pencereleri kapatırsan
 ## 7. Yedek
 `backup_wacc.bat`: veritabanı kopyasını ve kodun git paketini `backups\` klasörüne alır. Önemli değişikliklerden önce çalıştır.
 
+**Geri yükleme:** önce tüm WACC pencerelerini kapat, sonra `restore_wacc.bat hub_YYYYMMDD_HHMMSS.db` (ya da `backend_...db`). Mevcut veritabanı silinmez, `data\pre-restore-...` olarak saklanır; servisler açıksa geri yükleme reddedilir.
+
 ## 8. Sık karşılaşılan sorunlar
 | Belirti | Neden / çözüm |
 |---|---|

@@ -27,6 +27,7 @@ Hibrit (yerel + bulut) AI geliştirme ekibi sistemi. Üç Claude geliştirici ve
 3. Ortam kontrolü için: `powershell -ExecutionPolicy Bypass -File scripts\check_env.ps1`
 4. Acil durdurma: `stop_wacc.bat` — devam için `resume_wacc.bat`.
 5. İlk çalıştırma testi (sistem açıkken): `smoke_wacc.bat`
+6. Yedekten geri yükleme: `restore_wacc.bat <yedek-adı>` (önce tüm pencereleri kapat)
 6. Yerel/bulut model bağlantı testi: `check_llm.bat` (kurulum: `docs/LOCAL_LLM.md`)
 7. Yedek: `backup_wacc.bat` (veritabanı kopyası + git bundle, `backups/` içine).
 
