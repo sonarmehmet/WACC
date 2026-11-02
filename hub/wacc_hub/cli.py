@@ -117,6 +117,9 @@ def build_parser():
     sub.add_parser("backup", help="DB copy + git bundle into backups/")
     sub.add_parser("retry", help="redeliver queued messages and alert on expired locks")
     sub.add_parser("agents", help="show agent overview")
+    s = sub.add_parser("watch", help="print new messages/task changes for an agent (read-only, Ctrl+C to stop)")
+    s.add_argument("--as", dest="me", required=True); s.add_argument("--interval", type=float, default=5.0)
+    s.add_argument("--all", action="store_true", help="also announce what is already in the inbox at start")
 
     s = sub.add_parser("serve", help="start the HTTP API (127.0.0.1 only unless --host given)")
     s.add_argument("--host", default="127.0.0.1")
@@ -187,6 +190,9 @@ def main(argv=None):
             _out({**hub.retry_undelivered(), "lock_alerts": hub.alert_expired_locks()})
         elif c == "agents":
             _out(hub.overview())
+        elif c == "watch":
+            from .watch import watch
+            return watch(hub, args.me, args.interval, announce_existing=args.all)
         elif c == "serve":
             import uvicorn
             from .api import create_app
