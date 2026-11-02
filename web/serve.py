@@ -1,17 +1,19 @@
 """Local server for the WACC web panel (T-0005).
 
-Serves web/public and forwards /api/* to the Communication Hub, so the browser talks to a
-single origin (no CORS, no Hub changes). Standard library only. Listens on 127.0.0.1 only.
-The panel's token travels in the X-WACC-Token header and is never logged or stored here.
+Serves web/public and forwards /api/* to the Communication Hub and /backend/* (read-only,
+allow-listed) to the Backend, so the browser talks to a single origin (no CORS, no changes to
+either service). Standard library only. Listens on 127.0.0.1 only. Tokens travel in the
+X-WACC-Token header and are never logged or stored here.
 
-    python web/serve.py                      # panel on http://127.0.0.1:8780, Hub on :8765
-    python web/serve.py --port 8790 --hub http://127.0.0.1:8765
+    python web/serve.py                      # panel :8780, Hub :8765, Backend :8800
+    python web/serve.py --port 8790 --hub http://127.0.0.1:8765 --backend http://127.0.0.1:8800
 """
 
 import argparse
 import json
 import mimetypes
 import os
+import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib import error as urlerror
@@ -20,7 +22,18 @@ from urllib.parse import urlsplit
 
 PUBLIC = (Path(__file__).resolve().parent / "public").resolve()
 DEFAULT_HUB = os.environ.get("WACC_HUB_URL", "http://127.0.0.1:8765")
+DEFAULT_BACKEND = os.environ.get("WACC_BACKEND_URL", "http://127.0.0.1:8800")
 DEFAULT_PORT = int(os.environ.get("WACC_WEB_PORT", "8780"))
+# Backend paths the panel may read (exact match, GET only). Memory, AI calls and every other
+# endpoint are deliberately not exposed here.
+BACKEND_GET_PATHS = frozenset({
+    "/health", "/projects", "/jobs", "/jobs/summary", "/agents", "/ai/providers", "/ai/usage",
+    "/exec/approvals", "/exec/status", "/exec/audit",
+})
+# The only backend writes the panel may forward: decide an approval, stop/resume execution.
+# Who may do it is still decided by the Backend from the token (approve/deny/resume need the
+# user token). Submitting actions (POST /exec) is for agents and is never forwarded.
+BACKEND_POST_PATHS = re.compile(r"^/exec/(?:approvals/[0-9]{1,9}/(?:approve|deny)|stop|resume)$")
 MAX_BODY = 1_000_000
 LOCAL_NAMES = {"127.0.0.1", "localhost", "[::1]"}
 FORWARDED_HEADERS = ("X-WACC-Token", "Content-Type")
@@ -41,8 +54,9 @@ def host_is_local(host_header: str) -> bool:
     return name.lower() in LOCAL_NAMES
 
 
-def make_handler(hub_url: str):
+def make_handler(hub_url: str, backend_url: str = DEFAULT_BACKEND):
     hub_url = hub_url.rstrip("/")
+    backend_url = backend_url.rstrip("/")
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "WACCPanel/0.1"
@@ -83,6 +97,8 @@ def make_handler(hub_url: str):
                 return
             if self.path == "/api" or self.path.startswith("/api/"):
                 return self._proxy("GET")
+            if self.path == "/backend" or self.path.startswith("/backend/"):
+                return self._backend("GET")
             self._static()
 
         def do_POST(self):
@@ -90,6 +106,8 @@ def make_handler(hub_url: str):
                 return
             if self.path.startswith("/api/"):
                 return self._proxy("POST")
+            if self.path.startswith("/backend/"):
+                return self._backend("POST")
             self._json(405, {"detail": "Method not allowed"})
 
         def do_PUT(self):
@@ -112,17 +130,49 @@ def make_handler(hub_url: str):
             self._send(200, target.read_bytes(), ctype)
 
         def _proxy(self, method):
+            """Hub: /api/<path> -> <hub>/<path>. GET and POST."""
             path = self.path[len("/api"):] or "/"
             body = None
             if method == "POST":
-                try:
-                    length = int(self.headers.get("Content-Length") or 0)
-                except ValueError:
-                    length = 0
-                if length > MAX_BODY:
-                    return self._json(413, {"detail": "Request too large"})
-                body = self.rfile.read(length) if length else b""
-            req = urlrequest.Request(hub_url + path, data=body, method=method)
+                body = self._read_body()
+                if body is None:
+                    return
+            self._forward(method, hub_url + path, body, "HUB_UNREACHABLE",
+                          "Hub'a ulasilamiyor (%s). Hub calisiyor mu?" % hub_url)
+
+        def _read_body(self):
+            """Request body, or None after answering 413 when it is too large."""
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = 0
+            if length > MAX_BODY:
+                self._json(413, {"detail": "Request too large"})
+                return None
+            return self.rfile.read(length) if length else b""
+
+        def _backend(self, method):
+            """Backend: /backend/<path> -> <backend>/<path>. Allow-listed: a few GET paths and
+            the approval/stop POSTs only (no AI calls, no memory, no job or project writes).
+            The Backend tokens are separate secrets; the Backend alone decides who may do what."""
+            parts = urlsplit(self.path)
+            path = parts.path[len("/backend"):] or "/"
+            unreachable = "Backend'e ulasilamiyor (%s). Backend calisiyor mu?" % backend_url
+            if method == "GET":
+                if path not in BACKEND_GET_PATHS:
+                    return self._json(404, {"detail": {"code": "NOT_EXPOSED",
+                                                       "message": "Bu backend yolu panelden acik degil"}})
+                url = backend_url + path + ("?" + parts.query if parts.query else "")
+                return self._forward("GET", url, None, "BACKEND_UNREACHABLE", unreachable)
+            if not BACKEND_POST_PATHS.fullmatch(path):
+                return self._json(405, {"detail": "Method not allowed"})
+            body = self._read_body()
+            if body is None:
+                return
+            self._forward("POST", backend_url + path, body, "BACKEND_UNREACHABLE", unreachable)
+
+        def _forward(self, method, url, body, unreachable_code, unreachable_message):
+            req = urlrequest.Request(url, data=body, method=method)
             for name in FORWARDED_HEADERS:
                 value = self.headers.get(name)
                 if value:
@@ -130,26 +180,27 @@ def make_handler(hub_url: str):
             try:
                 with _OPENER.open(req, timeout=10) as resp:
                     self._send(resp.status, resp.read(), resp.headers.get("Content-Type", "application/json"))
-            except urlerror.HTTPError as exc:  # Hub answered with an error: pass it through unchanged
+            except urlerror.HTTPError as exc:  # upstream answered with an error: pass it through unchanged
                 self._send(exc.code, exc.read(), exc.headers.get("Content-Type", "application/json"))
             except (urlerror.URLError, TimeoutError, OSError):
-                self._json(502, {"detail": {"code": "HUB_UNREACHABLE",
-                                            "message": "Hub'a ulasilamiyor (%s). Hub calisiyor mu?" % hub_url}})
+                self._json(502, {"detail": {"code": unreachable_code, "message": unreachable_message}})
 
     return Handler
 
 
-def create_server(port: int = DEFAULT_PORT, hub_url: str = DEFAULT_HUB) -> ThreadingHTTPServer:
-    return ThreadingHTTPServer(("127.0.0.1", port), make_handler(hub_url))
+def create_server(port: int = DEFAULT_PORT, hub_url: str = DEFAULT_HUB,
+                  backend_url: str = DEFAULT_BACKEND) -> ThreadingHTTPServer:
+    return ThreadingHTTPServer(("127.0.0.1", port), make_handler(hub_url, backend_url))
 
 
 def main():
     parser = argparse.ArgumentParser(description="WACC web panel (local only)")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--hub", default=DEFAULT_HUB, help="Hub base URL (default %(default)s)")
+    parser.add_argument("--backend", default=DEFAULT_BACKEND, help="Backend base URL (default %(default)s)")
     args = parser.parse_args()
-    server = create_server(args.port, args.hub)
-    print("[web] Panel: http://127.0.0.1:%d  (Hub: %s)" % (args.port, args.hub))
+    server = create_server(args.port, args.hub, args.backend)
+    print("[web] Panel: http://127.0.0.1:%d  (Hub: %s, Backend: %s)" % (args.port, args.hub, args.backend))
     try:
         server.serve_forever()
     except KeyboardInterrupt:

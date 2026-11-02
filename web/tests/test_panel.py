@@ -31,6 +31,16 @@ try:
 except Exception:  # hub dependencies not installed
     HAVE_HUB = False
 
+sys.path.insert(0, str(WEB.parent / "backend"))
+try:
+    from wacc_backend.app import create_app as create_backend_app
+    from wacc_backend.config import load_settings as load_backend_settings
+    from wacc_backend.execution.executor import FakeExecutor
+    from wacc_backend.orchestrator import MockProvider
+    HAVE_BACKEND = True
+except Exception:  # backend (or its dependencies) not available
+    HAVE_BACKEND = False
+
 import serve  # noqa: E402
 
 TOKENS = {a: "tok-" + a for a in ("claude1", "claude2", "claude3", "gemini", "user")}
@@ -220,6 +230,238 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(json.loads(raw)["detail"]["code"], "HUB_UNREACHABLE")
 
 
+@unittest.skipUnless(HAVE_HUB and HAVE_BACKEND, "fastapi/uvicorn or backend not available")
+class BackendProxyTests(unittest.TestCase):
+    """/backend/* is a read-only, allow-listed view of the real Backend."""
+
+    TOKEN = "backend-secret"        # agent token
+    USER_TOKEN = "human-secret"     # the only token that may approve
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        settings = load_backend_settings({"WACC_DATA_DIR": cls.tmp.name})
+        backend_port = free_port()
+        cls.backend_server = uvicorn.Server(uvicorn.Config(
+            create_backend_app(settings, token=cls.TOKEN, providers=[MockProvider()],
+                               executor=FakeExecutor(), user_token=cls.USER_TOKEN),
+            host="127.0.0.1", port=backend_port, log_level="warning"))
+        cls.backend_thread = threading.Thread(target=cls.backend_server.run, daemon=True)
+        cls.backend_thread.start()
+        deadline = time.time() + 10
+        while not cls.backend_server.started and time.time() < deadline:
+            time.sleep(0.05)
+        assert cls.backend_server.started, "backend did not start"
+        cls.backend_url = "http://127.0.0.1:%d" % backend_port
+
+        # seed through the real backend API
+        cls.direct("POST", "/projects", {"name": "Panel Project", "description": "seed"})
+        cls.direct("POST", "/jobs", {"kind": "demo", "title": "<b>seed job</b>"})
+        cls.direct("POST", "/agents", {"name": "worker1", "role": "builder", "capabilities": ["build"]})
+
+        cls.panel = serve.create_server(0, "http://127.0.0.1:%d" % free_port(), cls.backend_url)
+        cls.port = cls.panel.server_address[1]
+        threading.Thread(target=cls.panel.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.panel.shutdown()
+        cls.panel.server_close()
+        cls.backend_server.should_exit = True
+        cls.backend_thread.join(5)
+        cls.tmp.cleanup()
+
+    @classmethod
+    def direct(cls, method, path, body=None):
+        """Straight to the Backend as an agent (not through the panel)."""
+        conn = http.client.HTTPConnection(cls.backend_url.split("//")[1], timeout=10)
+        try:
+            conn.request(method, path, body=json.dumps(body) if body is not None else None,
+                         headers={"X-WACC-Token": cls.TOKEN, "Content-Type": "application/json"})
+            resp = conn.getresponse()
+            raw = resp.read()
+            assert resp.status < 300, (path, resp.status, raw)
+            return json.loads(raw or b"null")
+        finally:
+            conn.close()
+
+    @classmethod
+    def request_approval(cls, path):
+        """An agent asks to delete `path`; returns the pending approval id."""
+        out = cls.direct("POST", "/exec", {"agent": "claude2", "action": {"type": "delete_path", "path": path}})
+        assert out["status"] == "APPROVAL_REQUIRED", out
+        return out["approval_id"]
+
+    def post(self, path, token=None, body=None, headers=None, port=None):
+        hdrs = {"Content-Type": "application/json"}
+        hdrs.update(headers or {})
+        if token:
+            hdrs["X-WACC-Token"] = token
+        conn = http.client.HTTPConnection("127.0.0.1", port or self.port, timeout=10)
+        try:
+            conn.request("POST", path, body=json.dumps(body if body is not None else {}), headers=hdrs)
+            resp = conn.getresponse()
+            raw = resp.read()
+            return resp.status, json.loads(raw or b"null")
+        finally:
+            conn.close()
+
+    def get(self, path, token=TOKEN, headers=None, port=None):
+        hdrs = dict(headers or {})
+        if token:
+            hdrs["X-WACC-Token"] = token
+        conn = http.client.HTTPConnection("127.0.0.1", port or self.port, timeout=10)
+        try:
+            conn.request("GET", path, headers=hdrs)
+            resp = conn.getresponse()
+            raw = resp.read()
+            return resp.status, json.loads(raw or b"null")
+        finally:
+            conn.close()
+
+    def test_health_is_public(self):
+        status, body = self.get("/backend/health", token=None)
+        self.assertEqual(status, 200)
+        self.assertTrue(body["ok"])
+        self.assertIn("schema_version", body)
+
+    def test_token_is_required_and_passed_through(self):
+        self.assertEqual(self.get("/backend/jobs/summary", token=None)[0], 401)
+        self.assertEqual(self.get("/backend/jobs/summary", token="wrong")[0], 401)
+        status, body = self.get("/backend/jobs/summary")
+        self.assertEqual(status, 200)
+        self.assertGreaterEqual(body["counts"]["QUEUED"], 1)
+        self.assertIn("paused", body)
+
+    def test_read_endpoints_used_by_the_panel(self):
+        status, jobs = self.get("/backend/jobs?limit=50")
+        self.assertEqual(status, 200)
+        self.assertIn("<b>seed job</b>", [j["title"] for j in jobs])  # raw text; UI renders it as text
+        status, projects = self.get("/backend/projects")
+        self.assertEqual([p["name"] for p in projects], ["Panel Project"])
+        status, agents = self.get("/backend/agents")
+        self.assertEqual(agents[0]["name"], "worker1")
+        self.assertEqual(agents[0]["capabilities"], ["build"])
+        status, providers = self.get("/backend/ai/providers")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(providers), 1)
+        status, usage = self.get("/backend/ai/usage")
+        self.assertEqual(status, 200)
+        self.assertIn("budget_usd", usage)
+
+    def test_other_backend_paths_are_not_exposed(self):
+        for path in ("/backend/memory", "/backend/memory/search?q=x", "/backend/jobs/1",
+                     "/backend/jobs/claim", "/backend/engine/pause", "/backend/ai/complete",
+                     "/backend/../api/health", "/backend/%2e%2e/api/health", "/backend/projects/1"):
+            status, body = self.get(path)
+            self.assertEqual(status, 404, path)
+            self.assertEqual(body["detail"]["code"], "NOT_EXPOSED", path)
+
+    def test_only_approval_and_stop_writes_are_forwarded(self):
+        for path in ("/backend/jobs", "/backend/engine/pause", "/backend/projects", "/backend/exec",
+                     "/backend/memory", "/backend/ai/complete", "/backend/ai/budget",
+                     "/backend/exec/approvals", "/backend/exec/approvals/x/approve",
+                     "/backend/exec/approvals/1/approve/extra", "/backend/exec/approvals/1",
+                     "/backend/exec/stopp", "/backend/../exec/stop"):
+            status, _ = self.post(path, token=self.USER_TOKEN, body={"kind": "x", "title": "y"})
+            self.assertEqual(status, 405, path)
+        # nothing was created or paused
+        self.assertEqual([p["name"] for p in self.get("/backend/projects")[1]], ["Panel Project"])
+        self.assertFalse(self.get("/backend/jobs/summary")[1]["paused"])
+
+    def test_pending_approval_is_listed_with_the_raw_action(self):
+        aid = self.request_approval("list-me.txt")
+        status, items = self.get("/backend/exec/approvals?status=PENDING")
+        self.assertEqual(status, 200)
+        item = next(i for i in items if i["id"] == aid)
+        self.assertEqual(item["status"], "PENDING")
+        self.assertEqual(item["requested_by"], "claude2")
+        self.assertEqual(item["action"]["type"], "delete_path")
+        self.assertEqual(len(item["action_hash"]), 64)
+        self.assertIn("expires_at", item)
+
+    def test_agent_token_cannot_decide(self):
+        aid = self.request_approval("agent-cannot.txt")
+        for verb in ("approve", "deny"):
+            status, body = self.post("/backend/exec/approvals/%d/%s" % (aid, verb), token=self.TOKEN)
+            self.assertEqual(status, 403, verb)
+            self.assertEqual(body["detail"]["code"], "FORBIDDEN")
+        self.assertEqual(self.post("/backend/exec/approvals/%d/approve" % aid)[0], 401)  # no token at all
+        self.assertEqual(self.get("/backend/exec/approvals?status=PENDING")[1][0]["status"], "PENDING")
+
+    def test_user_can_deny(self):
+        aid = self.request_approval("deny-me.txt")
+        status, body = self.post("/backend/exec/approvals/%d/deny" % aid, token=self.USER_TOKEN)
+        self.assertEqual(status, 200, body)
+        self.assertEqual((body["status"], body["decided_by"]), ("DENIED", "user"))
+        again = self.post("/backend/exec/approvals/%d/approve" % aid, token=self.USER_TOKEN)
+        self.assertEqual(again[0], 409)  # decided already: cannot flip it
+
+    def test_user_approval_lets_the_agent_run_once(self):
+        action = {"type": "delete_path", "path": "approve-me.txt"}
+        aid = self.request_approval("approve-me.txt")
+        status, body = self.post("/backend/exec/approvals/%d/approve" % aid, token=self.USER_TOKEN)
+        self.assertEqual((status, body["status"]), (200, "APPROVED"))
+        done = self.direct("POST", "/exec", {"agent": "claude2", "action": action, "approval_id": aid})
+        self.assertEqual(done["status"], "OK")
+        # single use: the same approval cannot run it again
+        conn = http.client.HTTPConnection(self.backend_url.split("//")[1], timeout=10)
+        try:
+            conn.request("POST", "/exec", body=json.dumps({"agent": "claude2", "action": action, "approval_id": aid}),
+                         headers={"X-WACC-Token": self.TOKEN, "Content-Type": "application/json"})
+            self.assertEqual(conn.getresponse().status, 403)
+        finally:
+            conn.close()
+        executed = [i for i in self.get("/backend/exec/approvals")[1] if i["id"] == aid][0]
+        self.assertEqual(executed["status"], "EXECUTED")
+
+    def test_audit_trail_is_readable(self):
+        self.request_approval("audit-me.txt")
+        status, rows = self.get("/backend/exec/audit?limit=50")
+        self.assertEqual(status, 200)
+        self.assertTrue(any(r["outcome"] == "APPROVAL_REQUESTED" for r in rows))
+
+    def test_stop_and_resume(self):
+        self.assertFalse(self.get("/backend/exec/status")[1]["emergency_stop"])
+        try:
+            self.assertEqual(self.post("/backend/exec/stop", token=self.TOKEN, body={"reason": "panel test"})[0], 200)
+            self.assertTrue(self.get("/backend/exec/status")[1]["emergency_stop"])
+            # an agent token may stop but never resume
+            self.assertEqual(self.post("/backend/exec/resume", token=self.TOKEN)[0], 403)
+            self.assertTrue(self.get("/backend/exec/status")[1]["emergency_stop"])
+        finally:
+            self.assertEqual(self.post("/backend/exec/resume", token=self.USER_TOKEN)[0], 200)
+        self.assertFalse(self.get("/backend/exec/status")[1]["emergency_stop"])
+        self.assertFalse(self.get("/backend/jobs/summary")[1]["paused"])
+
+    def test_cross_origin_decision_is_refused(self):
+        aid = self.request_approval("csrf.txt")
+        status, _ = self.post("/backend/exec/approvals/%d/approve" % aid, token=self.USER_TOKEN,
+                              headers={"Origin": "http://evil.example"})
+        self.assertEqual(status, 403)
+        status, _ = self.post("/backend/exec/approvals/%d/approve" % aid, token=self.USER_TOKEN,
+                              headers={"Host": "evil.example"})
+        self.assertEqual(status, 403)
+        pending = [i for i in self.get("/backend/exec/approvals?status=PENDING")[1] if i["id"] == aid]
+        self.assertEqual(len(pending), 1)  # still undecided
+
+    def test_foreign_host_is_refused(self):
+        status, _ = self.get("/backend/health", token=None, headers={"Host": "evil.example"})
+        self.assertEqual(status, 403)
+
+    def test_unreachable_backend_gives_502_with_code(self):
+        dead = serve.create_server(0, "http://127.0.0.1:1", "http://127.0.0.1:%d" % free_port())
+        port = dead.server_address[1]
+        threading.Thread(target=dead.serve_forever, daemon=True).start()
+        try:
+            status, body = self.get("/backend/health", token=None, port=port)
+        finally:
+            dead.shutdown()
+            dead.server_close()
+        self.assertEqual(status, 502)
+        self.assertEqual(body["detail"]["code"], "BACKEND_UNREACHABLE")
+
+
 class FrontendSourceTests(unittest.TestCase):
     def test_no_html_injection_sinks(self):
         source = (WEB / "public" / "app.js").read_text(encoding="utf-8")
@@ -237,6 +479,25 @@ class FrontendSourceTests(unittest.TestCase):
         self.assertIsNotNone(tag, "remember checkbox missing")
         self.assertIn('type="checkbox"', tag.group(0))
         self.assertNotIn("checked", tag.group(0))  # off unless the user turns it on
+
+    def test_backend_calls_go_through_two_helpers_only(self):
+        source = (WEB / "public" / "app.js").read_text(encoding="utf-8")
+        self.assertEqual(source.count('request("/backend"'), 2)  # backendGet (GET) and approvalCall
+        self.assertIn("function backendGet(path) {\n  return request(\"/backend\", state.backendToken, path, {});", source)
+
+    def test_approval_token_is_never_stored(self):
+        source = (WEB / "public" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("approvalToken", source)
+        for number, line in enumerate(source.splitlines(), 1):
+            if "approvalToken" in line or "approvalTimer" in line:
+                for sink in ("saveToken", "setItem", "localStorage", "sessionStorage", "document.cookie", "indexedDB"):
+                    self.assertNotIn(sink, line, "app.js:%d" % number)
+        # the secret is also removed from the input as soon as it is taken
+        self.assertIn('$("approvalToken").value = "";', source)
+
+    def test_approval_form_does_not_invite_password_managers(self):
+        html = (WEB / "public" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="approvalToken" type="password" autocomplete="new-password"', html)
 
     def test_token_is_persistent_only_when_remembered(self):
         source = (WEB / "public" / "app.js").read_text(encoding="utf-8")

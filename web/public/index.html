@@ -20,7 +20,7 @@
         <input id="remember" type="checkbox"> Hatırla
       </label>
       <button type="submit">Bağlan</button>
-      <button id="forgetToken" type="button" class="ghost">Unut</button>
+      <button id="forgetToken" type="button" class="ghost" title="Hub ve Backend tokenlarını siler">Unut</button>
     </form>
   </header>
 
@@ -29,6 +29,8 @@
     <button type="button" data-tab="feed">Akış</button>
     <button type="button" data-tab="tasks">Görevler</button>
     <button type="button" data-tab="locks">Kilitler</button>
+    <button type="button" data-tab="backend">Backend</button>
+    <button type="button" id="approvalsTab" data-tab="approvals">Onaylar</button>
   </nav>
 
   <main>
@@ -81,6 +83,41 @@
 
     <section id="tab-locks" class="tab hidden">
       <div id="locks"></div>
+    </section>
+
+    <section id="tab-backend" class="tab hidden">
+      <form id="backendTokenForm" class="card form" autocomplete="off">
+        <h2>Backend <span id="backendConn" class="badge">Bağlanıyor…</span></h2>
+        <p class="hint">Salt okunur görünüm. Backend'in kendi tokenı vardır (<code>data/backend_token.txt</code>);
+          Hub tokenından farklıdır. Üstteki <b>Hatırla</b> kutusu bu token için de geçerlidir.</p>
+        <label>Backend token <input id="backendToken" type="password" placeholder="X-WACC-Token" autocomplete="off"></label>
+        <div class="actions">
+          <button type="submit">Bağlan</button>
+          <button id="forgetBackendToken" type="button" class="ghost">Unut</button>
+        </div>
+      </form>
+      <div id="backend"></div>
+    </section>
+
+    <section id="tab-approvals" class="tab hidden">
+      <form id="approvalTokenForm" class="card form" autocomplete="off">
+        <h2>Onaylar <span id="approvalConn" class="badge">Bağlanıyor…</span></h2>
+        <p class="hint">Ajanların istediği riskli eylemleri (silme, kurulum, push…) yalnızca sen onaylarsın.
+          Bunun için <b>kullanıcı tokenı</b> gerekir: backend penceresinde her açılışta yazılır, diske kaydedilmez.
+          Panel de onu <b>hiçbir yerde saklamaz</b>: yalnızca bellekte tutar, girince alandan siler, 5 dakika
+          işlem yapmazsan veya sayfayı yenilersen unutur. Token'ı girmeden bekleyen istekleri yalnızca görürsün
+          (Backend sekmesindeki token ile).</p>
+        <label>Onay token'ı (kullanıcı)
+          <input id="approvalToken" type="password" autocomplete="new-password" autocapitalize="off"
+                 spellcheck="false" placeholder="backend penceresinde gösterilen kullanıcı tokenı">
+        </label>
+        <div class="actions">
+          <button type="submit">Kullan</button>
+          <button id="forgetApprovalToken" type="button" class="ghost">Sil</button>
+          <span id="approvalTokenState" class="badge warn">Onay token'ı yok: yalnızca görüntüleme</span>
+        </div>
+      </form>
+      <div id="approvals"></div>
     </section>
   </main>
 
