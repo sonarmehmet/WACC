@@ -18,6 +18,7 @@ class Settings:
     token_override: Optional[str]
     user_token_override: Optional[str]
     exec_roots: tuple
+    exec_auto_code: bool = False
 
 
 def load_settings(env: Optional[Mapping[str, str]] = None) -> Settings:
@@ -37,5 +38,6 @@ def load_settings(env: Optional[Mapping[str, str]] = None) -> Settings:
         token_file=data_dir / "backend_token.txt",
         token_override=env.get("WACC_BACKEND_TOKEN") or None,
         user_token_override=env.get("WACC_BACKEND_USER_TOKEN") or None,
+        exec_auto_code=env.get("WACC_EXEC_AUTO_CODE", "") == "1",
         exec_roots=tuple(Path(r) for r in env.get("WACC_EXEC_ROOTS", str(ROOT)).split(os.pathsep) if r),
     )

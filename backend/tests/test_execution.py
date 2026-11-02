@@ -113,11 +113,26 @@ class ClassifyTests(Base):
 
     def test_run_allowlist(self):
         for argv in (["git", "status"], ["git", "commit", "-m", "fix: a/b path"], ["git", "add", "."],
-                     ["python", "-m", "pytest", "backend"], ["python3", "-m", "unittest"], ["flutter", "analyze"],
-                     ["flutter", "build", "apk", "--release"], ["dart", "format", "."], ["adb", "devices"],
+                     ["python", "-m", "compileall", "backend"], ["flutter", "analyze"],
+                     ["dart", "format", "."], ["adb", "devices"],
                      ["node", "--version"], ["python.exe", "--version"]):
             d = self.c({"type": "run", "argv": argv})
             self.assertEqual((d.action_class, d.verdict), (RUN_ALLOWLIST, ALLOW), argv)
+
+    def test_running_project_code_needs_approval_unless_opted_in(self):
+        for argv in (["python", "-m", "pytest", "backend"], ["python3", "-m", "unittest"], ["flutter", "test"],
+                     ["flutter", "build", "apk", "--release"], ["dart", "test"]):
+            d = self.c({"type": "run", "argv": argv})
+            self.assertEqual(d.verdict, APPROVAL, argv)
+            opted = classify({"type": "run", "argv": argv}, [self.root], auto_run_code=True)
+            self.assertEqual((opted.action_class, opted.verdict), (RUN_ALLOWLIST, ALLOW), argv)
+
+    def test_service_flag_controls_code_running_approval(self):
+        argv = ["python", "-m", "pytest", "backend"]
+        svc = self.service()
+        self.assertEqual(svc.submit("claude2", {"type": "run", "argv": argv}).get("status"), "APPROVAL_REQUIRED")
+        auto = ExecutionService(self.storage, [self.root], self.fake, self.stop, self.approvals, auto_run_code=True)
+        self.assertNotEqual(auto.submit("claude2", {"type": "run", "argv": argv}).get("status"), "APPROVAL_REQUIRED")
 
     def test_run_install_needs_approval(self):
         for argv in (["pip", "install", "requests"], ["python", "-m", "pip", "install", "x"], ["flutter", "pub", "get"],

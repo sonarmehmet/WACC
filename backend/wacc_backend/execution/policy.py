@@ -49,6 +49,13 @@ INSTALL_PREFIXES = {
     "flutter": [["pub", "get"], ["pub", "add"], ["pub", "upgrade"]], "dart": [["pub", "get"], ["pub", "add"]],
     "npm": [["install"], ["i"], ["ci"], ["add"]],
 }
+# These run project code (test files, build scripts), so an agent could write a file and then run it with
+# the user's rights. They need approval unless the user opts in with WACC_EXEC_AUTO_CODE=1.
+CODE_RUN_PREFIXES = {
+    "python": [["-m", "pytest"], ["-m", "unittest"]],
+    "flutter": [["test"], ["build", "apk"], ["build", "appbundle"], ["build", "web"], ["build", "windows"]],
+    "dart": [["test"]],
+}
 ALIASES = {"python3": "python", "py": "python", "pip3": "pip"}
 KNOWN_EXECUTABLES = set(AUTO_PREFIXES) | set(INSTALL_PREFIXES) | {"git"}
 
@@ -94,7 +101,7 @@ def _path_like(arg: str) -> bool:
 
 
 def classify(action: dict, roots: Iterable[Path], network_allowlist: Iterable[str] = DEFAULT_NETWORK_ALLOWLIST,
-             requested_by: str = "") -> Decision:
+             requested_by: str = "", auto_run_code: bool = False) -> Decision:
     if not isinstance(action, dict) or not isinstance(action.get("type"), str):
         return _deny(SYSTEM_CHANGE, "Action must be an object with a 'type'")
     kind = action["type"]
@@ -103,7 +110,7 @@ def classify(action: dict, roots: Iterable[Path], network_allowlist: Iterable[st
     if kind in ("read_file", "list_dir", "write_file", "delete_path"):
         return _classify_path_action(kind, action, roots)
     if kind == "run":
-        return _classify_run(action, roots, requested_by)
+        return _classify_run(action, roots, requested_by, auto_run_code)
     if kind == "http_get":
         return _classify_http(action, network_allowlist)
     return _deny(SYSTEM_CHANGE, f"Unsupported action type {kind!r}", kind)
@@ -146,7 +153,7 @@ def _relative(path: Path, roots) -> str:
     return str(path)
 
 
-def _classify_run(action, roots, requested_by) -> Decision:
+def _classify_run(action, roots, requested_by, auto_run_code: bool = False) -> Decision:
     argv = action.get("argv")
     if (not isinstance(argv, list) or not argv or len(argv) > MAX_ARGS
             or any(not isinstance(a, str) or not a or len(a) > MAX_ARG_LEN or "\x00" in a or "\n" in a for a in argv)):
@@ -182,6 +189,10 @@ def _classify_run(action, roots, requested_by) -> Decision:
     for prefix in INSTALL_PREFIXES.get(exe, []):
         if _is_prefix(args, prefix):
             return Decision(INSTALL, APPROVAL, "Installing packages needs approval (once per package/version)", summary, norm)
+    if not auto_run_code:
+        for prefix in CODE_RUN_PREFIXES.get(exe, []):
+            if _is_prefix(args, prefix):
+                return Decision(SYSTEM_CHANGE, APPROVAL, "Runs project code (tests/build); needs approval unless WACC_EXEC_AUTO_CODE=1", summary, norm)
     for prefix in AUTO_PREFIXES.get(exe, []):
         if _is_prefix(args, prefix):
             return Decision(RUN_ALLOWLIST, ALLOW, "Allowlisted command", summary, norm)
