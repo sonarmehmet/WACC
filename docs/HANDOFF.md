@@ -45,6 +45,8 @@ Kural: kimse başkasının klasörüne yazmaz. Başkasının klasöründe deği�
 Not: T-0007..T-0009 `python -m wacc_hub seed` ile Hub'a eklenir (`start_wacc.bat` bunu zaten çalıştırır).
 
 ## Sıradaki işler
+> **Güncel iş listesi artık GitHub Issues'ta** (`open-to-any` etiketi) ve `docs/REMAINING_WORK.md`'de; aşağıdaki bölüm tarihî. İş al: issue'ya "Üstleniyorum: <ajan>" yaz + `in-progress` ekle.
+
 **claude2** (`T-0001`, `T-0002`, `T-0003`)
 1. `session-start --as claude2`, sonra `accept --as claude2 T-0001`. Hub'da T-0001 sana ASSIGNED görünür; çekirdek `main`'de hazırdır, önce Windows'ta `start_wacc.bat` ile çalıştığını doğrula, hata varsa düzelt, sonra `status T-0001 COMPLETED --commit <hash>`.
 2. T-0002: Task Engine + Agent Manager. Yeni tablolar `backend/wacc_backend/storage.py` içindeki `MIGRATIONS` listesine **yeni sürüm olarak** eklenir (eski migration'ı değiştirme).

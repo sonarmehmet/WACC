@@ -15,7 +15,7 @@ Hibrit (yerel + bulut) AI geliştirme ekibi sistemi. Üç Claude geliştirici ve
 | Web panel, Flutter iskeleti | Claude 3 yazdı, CI'da test edildi |
 | Masaüstü paneli (`run_desktop.bat`, onay ekranı dahil) | Yazıldı, Windows CI'da pencere açılarak denendi |
 
-> Yeni bir oturum açıyorsan önce `docs/HANDOFF.md` dosyasını oku.
+> Yeni bir oturum açıyorsan önce `docs/HANDOFF.md` dosyasını oku. Yapılacak işler: GitHub Issues ve `docs/REMAINING_WORK.md`.
 > **Windows'ta zip yerine `git clone`/`git pull` kullan**: `.bat` dosyaları CRLF satır sonu ister, `.gitattributes` bunu clone sırasında ayarlar.
 > Testler her push'ta GitHub Actions'ta (Linux + Windows) çalışır.
 

@@ -3,6 +3,8 @@
 Her oturumu WACC klasöründe aç ve ilgili metni ilk mesaj olarak yapıştır.
 Aynı oturum limit dolunca kapanırsa yeni oturumda yine aynı metni kullan; ajan kaldığı yerden devam eder.
 
+**Ortak ek (Claude 2, Claude 3 ve Gemini için):** Hub görevlerin bittiyse ya da beklemedeysen, hazır işleri GitHub'dan al: https://github.com/sonarmehmet/WACC/issues (etiket `open-to-any`). Kendi klasörüne uyan, `in-progress` olmayan bir issue seç, `Üstleniyorum: <ajan adı>` yorumu yaz + `in-progress` etiketini ekle, kendi dalında çalış. Kurallar ve liste: `docs/REMAINING_WORK.md`. Aynı işi iki ajan almaz; ilk yorum kazanır.
+
 ---
 
 ## CLAUDE 2 — Backend & Core
