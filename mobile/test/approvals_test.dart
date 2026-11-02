@@ -130,11 +130,20 @@ void main() {
       );
     }
 
+    // configure()/setApprovalToken() start a refresh that is not awaited; let it (and the
+    // follow-up run it may queue) finish before looking at the state.
+    Future<void> settle(ApprovalsState state) async {
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      await state.refresh();
+    }
+
     test('lists pending with the settings token; cannot decide without the user token', () async {
       final log = <String>[];
       final state = build(log, [_approval()]);
       state.configure(const Settings(backendToken: 'tok-agent'));
-      await state.refresh();
+      await settle(state);
       expect(state.pending.single.id, 7);
       expect(state.pendingCount, 1);
       expect(state.hasApprovalToken, isFalse);
@@ -148,7 +157,7 @@ void main() {
       final state = build(log, [_approval()]);
       state.configure(const Settings(backendToken: 'tok-agent'));
       state.setApprovalToken('tok-agent');
-      await state.refresh();
+      await settle(state);
       final err = await state.decide(state.pending.single, approve: true);
       expect(err, contains('kullanıcı tokenı'));
       expect(log, isEmpty);
@@ -160,7 +169,7 @@ void main() {
       final state = build(log, [_approval()]);
       state.configure(const Settings());
       state.setApprovalToken('tok-human');
-      await state.refresh();
+      await settle(state);
       expect(await state.decide(state.pending.single, approve: true), isNull);
       expect(log, ['approve:7']);
       expect(state.pending, isEmpty);
