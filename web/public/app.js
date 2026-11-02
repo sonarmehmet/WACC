@@ -22,15 +22,26 @@ const STATUS_LABELS = {
 };
 const REFRESH_MS = 5000;
 const TOKEN_KEY = "wacc.token";
+const BACKEND_TOKEN_KEY = "wacc.backend_token";
 
 const state = {
   token: "",
+  backendToken: "",
   me: null,
   tab: "agents",
   conversation: null,
-  data: { agents: [], feed: [], tasks: [], locks: [], emergency: false },
+  data: { agents: [], feed: [], tasks: [], locks: [], emergency: false, backend: null },
   busy: false,
   again: false,
+  backendBusy: false,
+  backendAgain: false,
+  backendGen: 0,
+  approvalToken: "", // memory only: never written to any storage
+  approvalTimer: null,
+  approvalBusy: false,
+  approvalAgain: false,
+  approvalGen: 0,
+  pendingCount: 0,
   signatures: {},
 };
 
@@ -47,23 +58,23 @@ function storageArea(persistent) {
   try { return persistent ? window.localStorage : window.sessionStorage; } catch (e) { return null; }
 }
 
-function loadToken() {
+function loadToken(key) {
   for (const persistent of [true, false]) {
     const area = storageArea(persistent);
     let value = "";
-    try { value = area ? area.getItem(TOKEN_KEY) || "" : ""; } catch (e) { value = ""; }
+    try { value = area ? area.getItem(key) || "" : ""; } catch (e) { value = ""; }
     if (value) return { token: value, remember: persistent };
   }
   return { token: "", remember: false };
 }
 
-function saveToken(token, remember) {
+function saveToken(key, token, remember) {
   for (const persistent of [true, false]) {
     const area = storageArea(persistent);
     if (!area) continue;
     try {
-      if (token && persistent === remember) area.setItem(TOKEN_KEY, token);
-      else area.removeItem(TOKEN_KEY);
+      if (token && persistent === remember) area.setItem(key, token);
+      else area.removeItem(key);
     } catch (e) { /* ignore */ }
   }
 }
@@ -142,8 +153,17 @@ class ApiError extends Error {
   }
 }
 
-async function api(path, options = {}) {
-  const headers = { "X-WACC-Token": state.token };
+// Hub: /api/<path> with the hub token. Backend: /backend/<path>, read-only, own token.
+function api(path, options = {}) {
+  return request("/api", state.token, path, options);
+}
+
+function backendGet(path) {
+  return request("/backend", state.backendToken, path, {});
+}
+
+async function request(prefix, token, path, options) {
+  const headers = { "X-WACC-Token": token };
   const init = { method: options.method || "GET", headers };
   if (options.body !== undefined) {
     headers["Content-Type"] = "application/json";
@@ -151,7 +171,7 @@ async function api(path, options = {}) {
   }
   let res;
   try {
-    res = await fetch("/api" + path, init);
+    res = await fetch(prefix + path, init);
   } catch (e) {
     throw new ApiError(0, "NETWORK", "Panel sunucusuna ulaşılamıyor");
   }
@@ -360,6 +380,389 @@ function renderLocks() {
   });
 }
 
+/* -------------------------------------------------------------------- backend */
+
+function clip(value, max) {
+  const s = value == null ? "" : String(value);
+  return s.length > max ? s.slice(0, max) + "…" : s;
+}
+
+function dataTable(headers, rows) {
+  return el("table", {},
+    el("thead", {}, el("tr", {}, headers.map((h) => el("th", { text: h })))),
+    el("tbody", {}, rows.map((cells) => el("tr", {}, cells.map((c) => el("td", {}, c))))));
+}
+
+function section(title, ...content) {
+  return el("section", { class: "group" }, el("h2", { text: title }), ...content);
+}
+
+function emptyNote(text) {
+  return el("p", { class: "empty", text });
+}
+
+function setBackendConn(tone, text) {
+  const badge = $("backendConn");
+  badge.className = "badge " + tone;
+  badge.textContent = text;
+}
+
+function agentStatusChip(status) {
+  const tone = status === "BUSY" ? "warn" : (status === "DISABLED" ? "bad" : "");
+  return chip(status, tone);
+}
+
+function jobStatusChip(status) {
+  return chip(status, status === "FAILED" ? "bad" : (status === "RUNNING" ? "warn" : ""));
+}
+
+function renderBackend() {
+  const box = $("backend");
+  const b = state.data.backend;
+  renderRegion("backend", box, [b, Math.floor(Date.now() / 60000)], () => {
+    if (!b) { box.replaceChildren(); return; }
+    const parts = [];
+    const meta = "Sürüm " + b.health.version + " · veritabanı şema " + b.health.schema_version;
+    if (b.locked) {
+      parts.push(section("Durum", el("div", { class: "card meta", text: meta + " · ayrıntılar için token gerekli" })));
+      box.replaceChildren(...parts);
+      return;
+    }
+
+    const counts = b.summary.counts || {};
+    parts.push(section("İş kuyruğu",
+      el("div", { class: "card" },
+        el("div", { class: "meta", text: meta }),
+        el("div", { class: "stats" },
+          b.summary.paused ? chip("DURAKLATILDI", "bad") : chip("çalışıyor"),
+          Object.keys(counts).map((s) => chip(s + " " + counts[s], s === "FAILED" && counts[s] ? "bad" : "")))),
+      b.jobs.length
+        ? dataTable(["#", "Tür", "Başlık", "Durum", "Öncelik", "Deneme", "Üstlenen", "Güncelleme", "Hata"],
+          b.jobs.map((j) => [String(j.id), j.kind, clip(j.title, 60), jobStatusChip(j.status),
+            String(j.priority), j.attempts + "/" + j.max_attempts, j.claimed_by || "-",
+            fmtTime(j.updated_at), clip(j.error, 80) || "-"]))
+        : emptyNote("Kuyrukta iş yok.")));
+
+    parts.push(section("Ajan kaydı",
+      b.agents.length
+        ? dataTable(["Ad", "Rol", "Durum", "Çevrimiçi", "Yetenekler", "İş", "Son görülme"],
+          b.agents.map((a) => [a.name, a.role, agentStatusChip(a.status), a.online ? "evet" : "hayır",
+            (a.capabilities || []).join(", ") || "-", a.current_job == null ? "-" : String(a.current_job),
+            ago(a.last_seen)]))
+        : emptyNote("Kayıtlı ajan yok.")));
+
+    parts.push(section("Projeler",
+      b.projects.length
+        ? dataTable(["#", "Ad", "Durum", "Açıklama"],
+          b.projects.map((p) => [String(p.id), p.name, p.status, clip(p.description, 80) || "-"]))
+        : emptyNote("Henüz proje yok.")));
+
+    const usage = b.usage || {};
+    const usd = (v) => "$" + Number(v || 0).toFixed(4);
+    parts.push(section("AI sağlayıcıları",
+      el("div", { class: "card" },
+        el("div", { class: "stats" },
+          chip("Gün " + (usage.day || "-")),
+          chip("Harcanan " + usd(usage.spent_usd) + " / bütçe " + usd(usage.budget_usd),
+            Number(usage.spent_usd) >= Number(usage.budget_usd) && Number(usage.budget_usd) > 0 ? "bad" : ""))),
+      b.providers.length
+        ? dataTable(["Ad", "Tür", "Model", "1K giriş", "1K çıkış"],
+          b.providers.map((p) => [p.name, p.kind, p.model || "-", usd(p.price_in_per_1k), usd(p.price_out_per_1k)]))
+        : emptyNote("Etkin sağlayıcı yok (WACC_ENABLE_MOCK, WACC_LOCAL_LLM_URL…)."),
+      (usage.providers || []).length
+        ? dataTable(["Sağlayıcı", "Çağrı", "Başarılı", "Giriş token", "Çıkış token", "Maliyet"],
+          usage.providers.map((u) => [u.provider, String(u.calls || 0), String(u.ok_calls || 0),
+            String(u.tin || 0), String(u.tout || 0), usd(u.cost)]))
+        : null));
+
+    box.replaceChildren(...parts);
+  });
+}
+
+// A token change bumps backendGen; a poll that was already in flight with the old token
+// then drops its result instead of showing stale data, and a refresh asked for while one is
+// running is repeated afterwards instead of being lost.
+async function refreshBackend() {
+  if (state.backendBusy) { state.backendAgain = true; return; }
+  state.backendBusy = true;
+  const gen = state.backendGen;
+  try {
+    let health;
+    try {
+      health = await backendGet("/health");
+    } catch (e) {
+      if (gen !== state.backendGen) return;
+      state.data.backend = null;
+      setBackendConn("bad", e.code === "BACKEND_UNREACHABLE" ? "Backend'e ulaşılamıyor" : e.message);
+      renderBackend();
+      return;
+    }
+    if (gen !== state.backendGen) return;
+    if (!state.backendToken) {
+      state.data.backend = { health, locked: true };
+      setBackendConn("warn", "Token gerekli");
+      renderBackend();
+      return;
+    }
+    try {
+      const [summary, agents, jobs, projects, providers, usage] = await Promise.all([
+        backendGet("/jobs/summary"), backendGet("/agents"), backendGet("/jobs?limit=50"),
+        backendGet("/projects"), backendGet("/ai/providers"), backendGet("/ai/usage"),
+      ]);
+      if (gen !== state.backendGen) return;
+      state.data.backend = { health, summary, agents, jobs, projects, providers, usage };
+      setBackendConn("ok", "Bağlı");
+    } catch (e) {
+      if (gen !== state.backendGen) return;
+      state.data.backend = { health, locked: true };
+      setBackendConn(e.status === 401 ? "warn" : "bad", e.status === 401 ? "Token geçersiz" : e.message);
+    }
+    renderBackend();
+  } finally {
+    state.backendBusy = false;
+    if (state.backendAgain || gen !== state.backendGen) {
+      state.backendAgain = false;
+      refreshBackend();
+    }
+  }
+}
+
+function backendTokenChanged() {
+  state.backendGen += 1;
+  state.signatures.backend = null;
+  // the Backend token is also what the Onaylar tab uses to list requests before an approval
+  // token is entered
+  state.approvalGen += 1;
+  state.signatures.approvals = null;
+  refreshApprovals();
+}
+
+/* ------------------------------------------------------------------ approvals */
+
+// Approving needs the user's own token (shown in the Backend window). It is kept ONLY in this
+// variable: never in localStorage/sessionStorage, cleared from the input after it is taken,
+// dropped after 5 idle minutes and on "Unut". Until it is entered the tab is read-only and
+// uses the Backend token, if any, just to list requests.
+const APPROVAL_IDLE_MS = 5 * 60 * 1000;
+const RISKY_CLASSES = ["DELETE", "SYSTEM_CHANGE", "PUBLISH", "PERSONAL_FILES", "FINANCIAL", "SECRET_EXPORT"];
+
+function approvalCall(token, path, options) {
+  return request("/backend", token, path, options || {});
+}
+
+function viewToken() {
+  return state.approvalToken || state.backendToken;
+}
+
+function setApprovalToken(token) {
+  clearTimeout(state.approvalTimer);
+  state.approvalToken = token;
+  state.approvalGen += 1;
+  state.signatures.approvals = null;
+  if (token) {
+    state.approvalTimer = setTimeout(() => {
+      setApprovalToken("");
+      toast("Onay token'ı hareketsizlikten dolayı silindi");
+      refreshApprovals();
+    }, APPROVAL_IDLE_MS);
+  }
+  renderApprovalToken();
+}
+
+function touchApprovalToken() {
+  if (state.approvalToken) setApprovalToken(state.approvalToken);
+}
+
+function renderApprovalToken() {
+  const holding = Boolean(state.approvalToken);
+  $("approvalTokenState").textContent = holding
+    ? "Onay token'ı bellekte (5 dk hareketsizlikte silinir)"
+    : "Onay token'ı yok: yalnızca görüntüleme";
+  $("approvalTokenState").className = "badge " + (holding ? "ok" : "warn");
+  $("forgetApprovalToken").disabled = !holding;
+}
+
+function setApprovalConn(tone, text) {
+  const badge = $("approvalConn");
+  badge.className = "badge " + tone;
+  badge.textContent = text;
+}
+
+function updatePendingBadge() {
+  const n = state.pendingCount;
+  const tabButton = $("approvalsTab");
+  tabButton.textContent = n ? "Onaylar (" + n + ")" : "Onaylar";
+  tabButton.classList.toggle("alert", n > 0);
+  document.title = (n ? "(" + n + ") " : "") + "WACC Panel";
+}
+
+function actionSummary(action) {
+  let text;
+  try { text = JSON.stringify(action); } catch (e) { text = String(action); }
+  return clip(text, 300);
+}
+
+function remaining(ts) {
+  const d = parseTime(ts);
+  if (!d) return "-";
+  const s = Math.round((d.getTime() - Date.now()) / 1000);
+  if (s <= 0) return "süresi doldu";
+  return Math.floor(s / 60) + " dk " + String(s % 60).padStart(2, "0") + " sn kaldı";
+}
+
+async function decide(item, verb) {
+  if (!state.approvalToken) { toast("Önce onay token'ını gir", true); return; }
+  if (verb === "approve") {
+    const ok = window.confirm("Bu eylemi ONAYLIYOR musun?\n\nSınıf: " + item.action_class +
+      "\nİsteyen: " + item.requested_by + "\n\n" + actionSummary(item.action));
+    if (!ok) return;
+  }
+  try {
+    await approvalCall(state.approvalToken, "/exec/approvals/" + enc(String(item.id)) + "/" + verb,
+      { method: "POST" });
+    touchApprovalToken();
+    toast("#" + item.id + (verb === "approve" ? " onaylandı" : " reddedildi"));
+  } catch (e) {
+    toast(e.message || "İşlem başarısız", true);
+  }
+  refreshApprovals();
+}
+
+async function execControl(verb) {
+  const token = verb === "resume" ? state.approvalToken : viewToken();
+  if (!token) { toast(verb === "resume" ? "Devam ettirmek için onay token'ı gerekir" : "Token gerekli", true); return; }
+  if (verb === "stop" && !window.confirm("Yürütme backend'i (ve Hub'ın paylaşılan durdurma bayrağı) durdurulsun mu?")) return;
+  try {
+    await approvalCall(token, "/exec/" + verb, {
+      method: "POST", body: verb === "stop" ? { reason: "web panel: manual stop" } : undefined,
+    });
+    if (verb === "resume") touchApprovalToken();
+    toast(verb === "stop" ? "Yürütme durduruldu" : "Yürütme devam ettirildi");
+  } catch (e) {
+    toast(e.message || "İşlem başarısız", true);
+  }
+  refreshApprovals();
+}
+
+function pendingCard(item) {
+  const risky = RISKY_CLASSES.includes(item.action_class);
+  let raw;
+  try { raw = JSON.stringify(item.action, null, 2); } catch (e) { raw = String(item.action); }
+  const canDecide = Boolean(state.approvalToken);
+  return el("article", { class: "card pending" },
+    el("div", { class: "head" },
+      el("strong", { text: "#" + item.id }),
+      chip(item.action_class, risky ? "bad" : "warn"),
+      el("span", { text: "isteyen: " + item.requested_by }),
+      el("span", { class: "meta", text: remaining(item.expires_at) })),
+    el("div", { class: "meta", text: "Ham eylem (backend'in doğruladığı biçim; neyin çalışacağı budur):" }),
+    el("pre", { class: "raw", text: clip(raw, 4000) }),
+    el("div", { class: "meta", text: "Eylem özeti SHA-256: " + String(item.action_hash || "").slice(0, 16) + "… (onay yalnızca bu eyleme bağlıdır)" }),
+    el("div", { class: "meta", text: "Backend risk özeti: " + clip(item.risk_summary, 300) }),
+    el("div", { class: "meta", text: "Ajanın kendi açıklaması güvenilir değildir; karar için yalnızca yukarıdaki ham eyleme bak." }),
+    el("div", { class: "actions" },
+      el("button", {
+        type: "button", text: "Onayla", disabled: !canDecide,
+        title: canDecide ? "" : "Önce onay token'ını gir",
+        onclick: () => decide(item, "approve"),
+      }),
+      el("button", {
+        type: "button", class: "ghost", text: "Reddet", disabled: !canDecide,
+        title: canDecide ? "" : "Önce onay token'ını gir",
+        onclick: () => decide(item, "deny"),
+      })));
+}
+
+function renderApprovals() {
+  const box = $("approvals");
+  const a = state.data.approvals;
+  renderRegion("approvals", box, [a, Boolean(state.approvalToken), Math.floor(Date.now() / 15000)], () => {
+    if (!a) { box.replaceChildren(); return; }
+    const parts = [];
+    parts.push(section("Yürütme",
+      el("div", { class: "card" },
+        el("div", { class: "stats" },
+          a.status.emergency_stop ? chip("DURDURULDU", "bad") : chip("açık"),
+          chip("izinli kök: " + (a.status.roots || []).join(", "))),
+        el("div", { class: "actions" },
+          a.status.emergency_stop ? null : el("button", {
+            type: "button", class: "danger", text: "Yürütmeyi durdur", onclick: () => execControl("stop"),
+          }),
+          a.status.emergency_stop ? el("button", {
+            type: "button", text: "Devam ettir", disabled: !state.approvalToken,
+            title: state.approvalToken ? "" : "Yalnızca kullanıcı tokenı devam ettirebilir",
+            onclick: () => execControl("resume"),
+          }) : null))));
+    parts.push(section("Bekleyen onaylar (" + a.pending.length + ")",
+      a.pending.length ? a.pending.map(pendingCard) : emptyNote("Bekleyen onay yok.")));
+    const done = a.history.filter((i) => i.status !== "PENDING");
+    parts.push(section("Son kararlar",
+      done.length
+        ? dataTable(["#", "İsteyen", "Sınıf", "Durum", "Karar veren", "Zaman", "Eylem"],
+          done.slice(0, 20).map((i) => [String(i.id), i.requested_by, i.action_class, chip(i.status,
+            i.status === "DENIED" ? "bad" : (i.status === "EXECUTED" ? "" : "warn")),
+            i.decided_by || "-", fmtTime(i.decided_at || i.created_at), actionSummary(i.action)]))
+        : emptyNote("Henüz karar yok.")));
+    parts.push(section("Denetim kaydı",
+      a.audit.length
+        ? dataTable(["Zaman", "Ajan", "Sınıf", "Sonuç", "Özet", "ms"],
+          a.audit.slice(0, 30).map((r) => [fmtTime(r.ts), r.agent, r.action_class, r.outcome,
+            clip(r.summary, 100), String(r.duration_ms || 0)]))
+        : emptyNote("Denetim kaydı boş.")));
+    box.replaceChildren(...parts);
+  });
+}
+
+// Light poll of the pending count always (when some token exists); the full view only while
+// the Onaylar tab is open. Same stale-result guard as refreshBackend.
+async function refreshApprovals() {
+  if (state.approvalBusy) { state.approvalAgain = true; return; }
+  state.approvalBusy = true;
+  const gen = state.approvalGen;
+  try {
+    const token = viewToken();
+    if (!token) {
+      state.data.approvals = null;
+      state.pendingCount = 0;
+      updatePendingBadge();
+      setApprovalConn("warn", "Token gerekli");
+      renderApprovals();
+      return;
+    }
+    const full = state.tab === "approvals";
+    try {
+      const pending = await approvalCall(token, "/exec/approvals?status=PENDING&limit=50");
+      if (gen !== state.approvalGen) return;
+      state.pendingCount = pending.length;
+      updatePendingBadge();
+      if (full) {
+        const [status, history, audit] = await Promise.all([
+          approvalCall(token, "/exec/status"),
+          approvalCall(token, "/exec/approvals?limit=30"),
+          approvalCall(token, "/exec/audit?limit=50"),
+        ]);
+        if (gen !== state.approvalGen) return;
+        state.data.approvals = { status, pending, history, audit };
+      }
+      setApprovalConn("ok", "Bağlı");
+    } catch (e) {
+      if (gen !== state.approvalGen) return;
+      state.data.approvals = null;
+      state.pendingCount = 0;
+      updatePendingBadge();
+      setApprovalConn(e.status === 401 ? "warn" : "bad",
+        e.status === 401 ? "Token geçersiz" : (e.code === "BACKEND_UNREACHABLE" ? "Backend'e ulaşılamıyor" : e.message));
+    }
+    renderApprovals();
+  } finally {
+    state.approvalBusy = false;
+    if (state.approvalAgain || gen !== state.approvalGen) {
+      state.approvalAgain = false;
+      refreshApprovals();
+    }
+  }
+}
+
 function renderAll() {
   renderStop();
   renderAgents();
@@ -417,6 +820,8 @@ function setTab(name) {
   state.tab = name;
   document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
   document.querySelectorAll(".tab").forEach((s) => s.classList.toggle("hidden", s.id !== "tab-" + name));
+  if (name === "backend") refreshBackend();
+  if (name === "approvals") refreshApprovals();
 }
 
 function setConversation(id) {
@@ -441,32 +846,73 @@ function init() {
   fill($("taskOwner"), [{ value: "", text: "Sahipsiz (BACKLOG)" }, ...WORKERS.map((w) => ({ value: w, text: w }))], "");
   fill($("taskPriority"), PRIORITIES, "NORMAL");
 
-  const saved = loadToken();
+  const saved = loadToken(TOKEN_KEY);
+  const savedBackend = loadToken(BACKEND_TOKEN_KEY);
   state.token = saved.token;
+  state.backendToken = savedBackend.token;
   $("token").value = saved.token;
-  $("remember").checked = saved.remember; // off unless the user chose to keep the token
+  $("backendToken").value = savedBackend.token;
+  // off unless the user chose to keep a token
+  $("remember").checked = saved.token ? saved.remember : savedBackend.remember;
 
   document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
 
   $("tokenForm").addEventListener("submit", (ev) => {
     ev.preventDefault();
     state.token = $("token").value.trim();
-    saveToken(state.token, $("remember").checked);
+    saveToken(TOKEN_KEY, state.token, $("remember").checked);
     state.signatures = {};
     refresh();
   });
-  // Changing the checkbox moves an already-saved token between the two stores right away.
+  // Changing the checkbox moves already-saved tokens between the two stores right away.
   $("remember").addEventListener("change", () => {
-    if (state.token) saveToken(state.token, $("remember").checked);
+    const remember = $("remember").checked;
+    if (state.token) saveToken(TOKEN_KEY, state.token, remember);
+    if (state.backendToken) saveToken(BACKEND_TOKEN_KEY, state.backendToken, remember);
   });
+  $("backendTokenForm").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    state.backendToken = $("backendToken").value.trim();
+    saveToken(BACKEND_TOKEN_KEY, state.backendToken, $("remember").checked);
+    backendTokenChanged();
+    refreshBackend();
+  });
+  $("forgetBackendToken").addEventListener("click", () => {
+    state.backendToken = "";
+    $("backendToken").value = "";
+    saveToken(BACKEND_TOKEN_KEY, "", false);
+    backendTokenChanged();
+    refreshBackend();
+  });
+  $("approvalTokenForm").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const value = $("approvalToken").value.trim();
+    $("approvalToken").value = ""; // do not leave the secret sitting in the DOM
+    setApprovalToken(value);
+    refreshApprovals();
+  });
+  $("forgetApprovalToken").addEventListener("click", () => {
+    $("approvalToken").value = "";
+    setApprovalToken("");
+    refreshApprovals();
+  });
+  // Top-right "Unut" clears every token held by this panel.
   $("forgetToken").addEventListener("click", () => {
     state.token = "";
+    state.backendToken = "";
+    $("approvalToken").value = "";
+    setApprovalToken("");
     state.me = null;
     state.signatures = {};
     $("token").value = "";
+    $("backendToken").value = "";
     $("remember").checked = false;
-    saveToken("", false);
+    saveToken(TOKEN_KEY, "", false);
+    saveToken(BACKEND_TOKEN_KEY, "", false);
+    state.data.backend = null;
+    backendTokenChanged();
     refresh();
+    if (state.tab === "backend") refreshBackend();
   });
 
   $("clearFilter").addEventListener("click", () => setConversation(null));
@@ -522,9 +968,16 @@ function init() {
     act(() => api("/system/resume", { method: "POST" }), "Çalışma devam ettirildi");
   });
 
+  renderApprovalToken();
   setTab("agents");
   refresh();
-  setInterval(() => { if (!document.hidden) refresh(); }, REFRESH_MS);
+  refreshApprovals();
+  setInterval(() => {
+    if (document.hidden) return;
+    refresh();
+    if (state.tab === "backend") refreshBackend(); // backend data is only polled while it is visible
+    refreshApprovals(); // cheap pending count always; the full view only on the Onaylar tab
+  }, REFRESH_MS);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 }
 
