@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from wacc_desktop.client import Api, ApiError, WaccClient, describe_approval  # noqa: E402
+from wacc_desktop.client import Api, ApiError, WaccClient, describe_approval, describe_provider  # noqa: E402
 
 SEEN = []
 
@@ -35,7 +35,7 @@ class Handler(BaseHTTPRequestHandler):
                                      "action": {"type": "run", "argv": ["pip", "install", "x"]}}])
         self._send(200, {"ok": True})
 
-    do_GET = do_POST = _handle
+    do_GET = do_POST = do_DELETE = _handle
 
 
 class ClientTests(unittest.TestCase):
@@ -85,6 +85,38 @@ class ClientTests(unittest.TestCase):
         self.assertIn("pip install x", text)
         self.assertIn("claude2", text)
         self.assertIn("INSTALL", text)
+
+
+    def test_account_changes_use_only_the_user_token_and_reads_use_the_agent_token(self):
+        c = WaccClient(backend_token="agent-tok", user_token="user-tok", backend_url=self.url)
+        c.providers()
+        self.assertEqual(SEEN[-1][:3], ("GET", "/ai/providers", "agent-tok"))
+        spec = {"name": "x1", "kind": "cloud", "base_url": "https://a.example/v1", "model": "m", "api_key": "sk-1"}
+        c.add_account(spec)
+        self.assertEqual(SEEN[-1], ("POST", "/ai/accounts", "user-tok", spec))
+        c.set_provider_enabled("x1", False)
+        self.assertEqual(SEEN[-1], ("POST", "/ai/providers/x1/enabled", "user-tok", {"enabled": False}))
+        c.test_provider("x1")
+        self.assertEqual(SEEN[-1][:3], ("POST", "/ai/providers/x1/test", "user-tok"))
+        c.remove_account("x1")
+        self.assertEqual(SEEN[-1][:3], ("DELETE", "/ai/accounts/x1", "user-tok"))
+
+    def test_account_changes_refuse_without_user_token_and_names_are_quoted(self):
+        c = WaccClient(backend_token="agent-tok", backend_url=self.url)
+        for fn in (lambda: c.add_account({}), lambda: c.remove_account("x"), lambda: c.test_provider("x"),
+                   lambda: c.set_provider_enabled("x", True)):
+            with self.assertRaises(ApiError):
+                fn()
+        self.assertEqual(SEEN, [])
+        WaccClient(user_token="u", backend_url=self.url).remove_account("../etc")
+        self.assertEqual(SEEN[-1][1], "/ai/accounts/..%2Fetc")
+
+    def test_describe_provider_marks_switched_off_and_origin(self):
+        line = describe_provider({"name": "x1", "kind": "local", "enabled": False, "source": "account", "model": "m"})
+        self.assertIn("KAPALI", line)
+        self.assertIn("yerel", line)
+        self.assertIn("hesap", line)
+        self.assertNotIn("api_key", describe_provider({"name": "a", "kind": "cloud", "api_key": "sk-1"}))
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ Everything returned by the servers is untrusted text; the UI only shows it in la
 
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any, Optional
 
@@ -109,8 +110,39 @@ class WaccClient:
             raise ApiError("Enter the approval token first")
         return self.user_backend.post("/exec/resume")
 
+    # AI accounts (any OpenAI-compatible endpoint). Changing them needs the approval (user) token.
+    def providers(self):
+        return self.backend.get("/ai/providers")
+
+    def add_account(self, spec: dict):
+        self._need_user()
+        return self.user_backend.post("/ai/accounts", spec)
+
+    def remove_account(self, name: str):
+        self._need_user()
+        return self.user_backend.request("DELETE", "/ai/accounts/" + urllib.parse.quote(name, safe=""))
+
+    def set_provider_enabled(self, name: str, enabled: bool):
+        self._need_user()
+        return self.user_backend.post("/ai/providers/" + urllib.parse.quote(name, safe="") + "/enabled", {"enabled": bool(enabled)})
+
+    def test_provider(self, name: str):
+        self._need_user()
+        return self.user_backend.post("/ai/providers/" + urllib.parse.quote(name, safe="") + "/test")
+
+    def _need_user(self):
+        if not self.user_backend.token:
+            raise ApiError("Enter the approval token first")
+
     def audit(self, limit: int = 100):
         return self.backend.get(f"/exec/audit?limit={int(limit)}")
+
+
+def describe_provider(p: dict) -> str:
+    state = "açık" if p.get("enabled", True) else "KAPALI"
+    where = "yerel" if p.get("kind") == "local" else "bulut"
+    origin = "hesap" if p.get("source") == "account" else "ortam"
+    return f"{p.get('name')}  [{where}, {state}, {origin}]  {p.get('model') or '-'}"
 
 
 def describe_approval(item: dict) -> str:

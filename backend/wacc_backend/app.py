@@ -13,7 +13,8 @@ from .memory import Memory
 from .execution.approvals import Approvals
 from .execution.executor import Executor, RealExecutor
 from .execution.service import EmergencyStop, ExecutionService
-from .orchestrator import Orchestrator, Provider, build_providers
+from .accounts import AccountStore, public_view, to_provider
+from .orchestrator import Orchestrator, OrchestratorError, Provider, build_providers
 from .config import Settings, load_settings
 from .security import get_or_create_agent_tokens, get_or_create_token, get_or_create_user_token, token_matches
 from .storage import Storage, StorageError
@@ -21,7 +22,7 @@ from .storage import Storage, StorageError
 STATUS_MAP = {"NOT_FOUND": 404, "DUPLICATE": 409, "FORBIDDEN": 403, "BAD_STATE": 409,
               "PROJECT_ARCHIVED": 409, "DISABLED": 409, "BUDGET_EXCEEDED": 429, "EMERGENCY_STOP": 423,
               "NOT_APPROVED": 403, "HASH_MISMATCH": 403,
-              "NO_PROVIDER": 503, "ALL_FAILED": 502}
+              "NO_PROVIDER": 503, "ALL_FAILED": 502, "NOT_REMOVABLE": 409, "TOO_MANY": 409}
 
 
 class ProjectIn(BaseModel):
@@ -98,6 +99,17 @@ class BudgetIn(BaseModel):
     usd: float
 
 
+class AccountIn(BaseModel):
+    name: str
+    kind: str
+    base_url: str
+    model: str
+    api_key: Optional[str] = None
+    price_in_per_1k: Optional[float] = None
+    price_out_per_1k: Optional[float] = None
+    enabled: bool = True
+
+
 class MemoryIn(BaseModel):
     content: str
     tags: List[str] = []
@@ -115,6 +127,12 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
     agents = AgentManager(storage)
     orchestrator = Orchestrator(storage, providers if providers is not None else build_providers(os.environ))
     memory = Memory(storage)
+    account_store = AccountStore(settings.data_dir / "ai_accounts.json")
+    for acc in account_store.load():
+        try:
+            orchestrator.add_account(to_provider(acc), acc["enabled"])
+        except (ValueError, StorageError):
+            pass  # a stale or conflicting entry must not stop the backend from starting
     expected = token or get_or_create_token(settings)
     user_expected = user_token or get_or_create_user_token(settings)
     agent_token_map = agent_tokens if agent_tokens is not None else get_or_create_agent_tokens(settings)
@@ -265,11 +283,42 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
     def ai_providers():
         return orchestrator.list_providers()
 
+    # Accounts are the human's: only the user token adds, removes, switches or tests them (keys never come back).
+    @app.post("/ai/accounts", status_code=201, dependencies=[Depends(user_only)])
+    def ai_account_add(body: AccountIn):
+        spec = {k: v for k, v in body.dict().items() if v is not None}
+        def add():
+            if spec.get("name", "").strip().lower() in orchestrator.providers:
+                raise OrchestratorError("DUPLICATE", f"A provider named {spec['name']!r} already exists")
+            acc = account_store.add(spec)
+            orchestrator.add_account(to_provider(acc), acc["enabled"])
+            return public_view(acc)
+        return run(add)
+
+    @app.delete("/ai/accounts/{name}", dependencies=[Depends(user_only)])
+    def ai_account_remove(name: str):
+        def remove():
+            orchestrator.remove_account(name)
+            return {"removed": account_store.remove(name)}
+        return run(remove)
+
+    @app.post("/ai/providers/{name}/enabled", dependencies=[Depends(user_only)])
+    def ai_provider_enabled(name: str, body: EnabledIn):
+        def switch():
+            orchestrator.set_enabled(name, body.enabled)
+            account_store.set_enabled(name, body.enabled)  # persisted for accounts; env providers reset on restart
+            return {"name": name, "enabled": body.enabled}
+        return run(switch)
+
+    @app.post("/ai/providers/{name}/test", dependencies=[Depends(user_only)])
+    def ai_provider_test(name: str):
+        return run(orchestrator.test_provider, name)
+
     @app.get("/ai/usage", dependencies=[Depends(auth)])
     def ai_usage():
         return orchestrator.usage_summary()
 
-    @app.post("/ai/budget", dependencies=[Depends(auth)])
+    @app.post("/ai/budget", dependencies=[Depends(user_only)])  # spending limit is the human's decision
     def ai_budget(body: BudgetIn):
         return {"budget_usd": run(orchestrator.set_budget, body.usd)}
 

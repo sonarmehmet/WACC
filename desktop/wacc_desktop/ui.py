@@ -3,7 +3,7 @@
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from .client import ApiError, WaccClient, describe_approval
+from .client import ApiError, WaccClient, describe_approval, describe_provider
 
 REFRESH_MS = 5000
 
@@ -40,6 +40,18 @@ class App(tk.Tk):
         self.agents_box = self._tab(tabs, "Ajanlar")
         self.tasks_box = self._tab(tabs, "Görevler")
         self.audit_box = self._tab(tabs, "Denetim")
+
+        ai = ttk.Frame(tabs)
+        tabs.add(ai, text="Yapay Zeka")
+        self.provider_list = tk.Listbox(ai, activestyle="none")
+        self.provider_list.pack(fill="both", expand=True, padx=4, pady=4)
+        row = ttk.Frame(ai)
+        row.pack(fill="x", padx=4, pady=(0, 4))
+        for label, cmd in (("Hesap ekle", self.add_account), ("Aç / Kapat", self.toggle_provider),
+                           ("Test et", self.test_provider), ("Sil", self.remove_account)):
+            ttk.Button(row, text=label, command=cmd).pack(side="left", padx=(0, 6))
+        ttk.Label(row, text="Değiştirmek için onay token'ı gerekir. API anahtarı kaydedilir ama bir daha gösterilmez.").pack(side="left", padx=6)
+        self._providers = []
 
         approvals = ttk.Frame(tabs)
         tabs.add(approvals, text="Onaylar")
@@ -80,6 +92,8 @@ class App(tk.Tk):
             problems.append(f"Hub: {exc.message}")
         try:
             self._approvals = self.client.pending_approvals()
+            self._providers = self.client.providers()
+            self._fill(self.provider_list, [describe_provider(p) for p in self._providers])
             self._fill(self.approval_list, [describe_approval(a) for a in self._approvals])
             self._fill(self.audit_box, [f"{r.get('ts')}  {r.get('agent')}  {r.get('outcome')}  {r.get('summary')}"
                                         for r in self.client.audit(60)])
@@ -105,6 +119,50 @@ class App(tk.Tk):
             messagebox.showerror("WACC", exc.message)
         self.refresh(schedule=False)
 
+    def _selected_provider(self):
+        sel = self.provider_list.curselection()
+        return self._providers[sel[0]] if sel else None
+
+    def _call(self, fn, *args):
+        try:
+            return fn(*args)
+        except ApiError as exc:
+            messagebox.showerror("WACC", exc.message)
+        return None
+
+    def add_account(self):
+        dialog = AccountDialog(self)
+        self.wait_window(dialog)
+        if dialog.result and self._call(self.client.add_account, dialog.result) is not None:
+            self.refresh(schedule=False)
+
+    def toggle_provider(self):
+        p = self._selected_provider()
+        if p and self._call(self.client.set_provider_enabled, p["name"], not p.get("enabled", True)) is not None:
+            self.refresh(schedule=False)
+
+    def test_provider(self):
+        p = self._selected_provider()
+        if not p:
+            return
+        res = self._call(self.client.test_provider, p["name"])
+        if res is None:
+            return
+        text = (f"Çalışıyor ({res.get('latency_ms')} ms): {res.get('reply')}" if res.get("ok")
+                else f"BAŞARISIZ: {res.get('error')}")
+        messagebox.showinfo("WACC", text)
+
+    def remove_account(self):
+        p = self._selected_provider()
+        if not p:
+            return
+        if p.get("source") != "account":
+            messagebox.showinfo("WACC", "Bu sağlayıcı ortam ayarından geliyor (data\\llm.env). Buradan silinmez, yalnızca kapatılabilir.")
+            return
+        if messagebox.askyesno("WACC", f"{p['name']} hesabı silinsin mi? Kayıtlı API anahtarı da silinir."):
+            if self._call(self.client.remove_account, p["name"]) is not None:
+                self.refresh(schedule=False)
+
     def emergency_stop(self):
         for fn in (self.client.hub_stop, self.client.exec_stop):
             try:
@@ -121,6 +179,40 @@ class App(tk.Tk):
         except ApiError as exc:
             messagebox.showerror("WACC", exc.message)
         self.refresh(schedule=False)
+
+
+class AccountDialog(tk.Toplevel):
+    """Add an AI account. The API key field is masked and the key is only sent to the backend."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Yapay zeka hesabı ekle")
+        self.result = None
+        self.transient(parent)
+        self.vars = {k: tk.StringVar(value=v) for k, v in
+                     (("name", ""), ("kind", "cloud"), ("base_url", "https://"), ("model", ""), ("api_key", ""))}
+        rows = (("Ad (küçük harf, örn. openrouter)", "name"), ("Tür (local / cloud)", "kind"),
+                ("Adres (OpenAI uyumlu /v1; yerel: http://127.0.0.1:11434/v1)", "base_url"),
+                ("Model adı", "model"), ("API anahtarı (yerel için boş)", "api_key"))
+        for i, (label, key) in enumerate(rows):
+            ttk.Label(self, text=label).grid(row=i, column=0, sticky="w", padx=8, pady=3)
+            if key == "kind":
+                widget = ttk.Combobox(self, textvariable=self.vars[key], values=("local", "cloud"), state="readonly", width=38)
+            else:
+                widget = ttk.Entry(self, textvariable=self.vars[key], width=40, show="*" if key == "api_key" else "")
+            widget.grid(row=i, column=1, padx=8, pady=3)
+        buttons = ttk.Frame(self)
+        buttons.grid(row=len(rows), column=0, columnspan=2, pady=8)
+        ttk.Button(buttons, text="Ekle", command=self._ok).pack(side="left", padx=6)
+        ttk.Button(buttons, text="Vazgeç", command=self.destroy).pack(side="left")
+        self.grab_set()
+
+    def _ok(self):
+        spec = {k: v.get().strip() for k, v in self.vars.items()}
+        if not spec["api_key"]:
+            spec.pop("api_key")
+        self.result = spec
+        self.destroy()
 
 
 def main():

@@ -71,3 +71,12 @@ Not: iş yükü (`payload`) veritabanında saklanır; içine sır koyma.
 - `POST /agents/{ad}/heartbeat`: yalnızca kendi adın. `POST /agents/{ad}/enabled`: yalnızca kullanıcı.
 - İş kuyruğundaki `worker` adı hâlâ serbesttir (dış işçiler keyfi ad kullanabilir); başka bir ajanın işini tamamlama riski bilinen sınırdır.
 - Hâlâ geçerli sınır: token'lar `data/` içinde durur; aynı bilgisayarda kendi kabuğunu çalıştıran bir ajan dosyayı okuyabilir (backend yalnızca kendisine gelen istekleri korur).
+
+## Yapay zeka hesapları (çalışırken ekle/çıkar)
+`data/ai_accounts.json` (git'e girmez, anahtarlar burada kalır, API anahtarı hiçbir yanıtta geri dönmez). **Yalnızca kullanıcı token'ı** değiştirebilir; ajanlar listeyi (anahtarsız) görür ve `/ai/complete` ile kullanır. Herhangi bir OpenAI uyumlu uç nokta olur (Ollama, LM Studio, OpenRouter, OpenAI, Gemini/Claude'un OpenAI uyumlu adresleri vb.).
+- `POST /ai/accounts` `{name, kind: local|cloud, base_url, model, api_key?, price_in_per_1k?, price_out_per_1k?, enabled?}`: yerel adres yalnızca loopback, bulut adresi yalnızca https; bulut için anahtar zorunlu. En fazla 20 hesap.
+- `DELETE /ai/accounts/{ad}`: siler (anahtar dosyadan da gider). Ortamdan gelen sağlayıcılar (`local-llm`, `cloud-llm`, `mock`) silinemez, yalnızca kapatılabilir.
+- `POST /ai/providers/{ad}/enabled` `{enabled}`: aç/kapat (kapalıyken otomatik yönlendirmeye girmez, açıkça seçilirse 409). Hesaplar için kalıcıdır.
+- `POST /ai/providers/{ad}/test`: tek küçük gerçek istek; kapalı hesapta da çalışır, kullanım kaydına yazılır.
+- `POST /ai/budget` artık yalnızca kullanıcı token'ı ile (harcama sınırı insanın kararı).
+Bilinen sınır: anahtarlar düz JSON dosyasında (token dosyalarıyla aynı güven düzeyi); aynı bilgisayarda kendi kabuğunu çalıştıran bir ajan okuyabilir.
