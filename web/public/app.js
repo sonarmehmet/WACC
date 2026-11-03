@@ -42,6 +42,10 @@ const state = {
   approvalAgain: false,
   approvalGen: 0,
   pendingCount: 0,
+  aiBusy: false,
+  aiAgain: false,
+  aiGen: 0,
+  aiTests: {}, // provider name -> last test result (no secrets)
   signatures: {},
 };
 
@@ -535,6 +539,9 @@ function backendTokenChanged() {
   state.approvalGen += 1;
   state.signatures.approvals = null;
   refreshApprovals();
+  state.aiGen += 1;
+  state.signatures.ai = null;
+  if (state.tab === "ai") refreshAi();
 }
 
 /* ------------------------------------------------------------------ approvals */
@@ -567,6 +574,9 @@ function setApprovalToken(token) {
     }, APPROVAL_IDLE_MS);
   }
   renderApprovalToken();
+  state.aiGen += 1;
+  state.signatures.ai = null;
+  if (state.tab === "ai") refreshAi();
 }
 
 function touchApprovalToken() {
@@ -580,6 +590,11 @@ function renderApprovalToken() {
     : "Onay token'ı yok: yalnızca görüntüleme";
   $("approvalTokenState").className = "badge " + (holding ? "ok" : "warn");
   $("forgetApprovalToken").disabled = !holding;
+  // the Yapay Zeka tab shows the same in-memory token
+  $("aiTokenState").textContent = $("approvalTokenState").textContent;
+  $("aiTokenState").className = $("approvalTokenState").className;
+  $("forgetAiToken").disabled = !holding;
+  $("aiAddBtn").disabled = !holding;
 }
 
 function setApprovalConn(tone, text) {
@@ -763,6 +778,193 @@ async function refreshApprovals() {
   }
 }
 
+/* ----------------------------------------------------------------- AI accounts */
+
+// Providers are listed with whatever token is available; every change (add, remove, switch,
+// test) needs the user's token, which is the same memory-only token as for approvals. The API
+// key of a new account is read from the form, the field is emptied BEFORE the request is sent,
+// and it is never kept, shown or stored; the Backend never returns it either.
+const AI_NAME_RE = /^[a-z0-9][a-z0-9_-]{1,30}$/;
+
+function setAiConn(tone, text) {
+  const badge = $("aiConn");
+  badge.className = "badge " + tone;
+  badge.textContent = text;
+}
+
+function usdText(value) {
+  return "$" + Number(value || 0).toFixed(4);
+}
+
+function aiTestCell(name) {
+  const t = state.aiTests[name];
+  if (!t) return "-";
+  if (t.pending) return chip("test ediliyor…", "warn");
+  return t.ok
+    ? chip("OK · " + t.latency + " ms" + (t.reply ? " · yanıt: " + t.reply : ""))
+    : chip("hata: " + clip(t.error, 120) + (t.latency ? " · " + t.latency + " ms" : ""), "bad");
+}
+
+function aiHeaderChips(usage) {
+  const spent = Number(usage.spent_usd || 0);
+  const budget = Number(usage.budget_usd || 0);
+  return el("div", { class: "card" },
+    el("div", { class: "stats" },
+      chip("Gün " + (usage.day || "-")),
+      chip("Harcanan " + usdText(spent) + " / bütçe " + usdText(budget), budget > 0 && spent >= budget ? "bad" : "")),
+    el("div", { class: "meta", text: "Bütçeyi bu panel değiştirmez; yalnızca görüntülenir." }));
+}
+
+function providerActions(p) {
+  const canChange = Boolean(state.approvalToken);
+  const hint = canChange ? "" : "Önce kullanıcı tokenını gir";
+  const buttons = [
+    el("button", {
+      type: "button", class: "small", text: p.enabled ? "Kapat" : "Aç", disabled: !canChange, title: hint,
+      onclick: () => aiToggle(p),
+    }),
+    el("button", {
+      type: "button", class: "small ghost", text: "Test", disabled: !canChange, title: hint,
+      onclick: () => aiTest(p),
+    }),
+  ];
+  // providers that come from the environment (data/llm.env) can only be switched, not removed
+  if (p.source === "account") {
+    buttons.push(el("button", {
+      type: "button", class: "small danger", text: "Sil", disabled: !canChange, title: hint,
+      onclick: () => aiRemove(p),
+    }));
+  }
+  return el("div", { class: "actions" }, buttons);
+}
+
+function renderAi() {
+  const box = $("ai");
+  const a = state.data.ai;
+  renderRegion("ai", box, [a, Boolean(state.approvalToken), state.aiTests], () => {
+    if (!a) { box.replaceChildren(); return; }
+    const parts = [section("Kullanım", aiHeaderChips(a.usage || {}))];
+    parts.push(section("Sağlayıcılar (" + a.providers.length + ")",
+      a.providers.length
+        ? dataTable(["Ad", "Tür", "Model", "Kaynak", "Durum", "1K giriş", "1K çıkış", "Son test", "İşlemler"],
+          a.providers.map((p) => [p.name, p.kind, p.model || "-",
+            p.source === "account" ? "hesap" : "ortam (llm.env)",
+            p.enabled ? chip("açık") : chip("kapalı", "warn"),
+            usdText(p.price_in_per_1k), usdText(p.price_out_per_1k), aiTestCell(p.name), providerActions(p)]))
+        : emptyNote("Etkin sağlayıcı yok. Aşağıdan hesap ekle ya da data/llm.env ile yerel model ayarla.")));
+    box.replaceChildren(...parts);
+  });
+}
+
+async function refreshAi() {
+  if (state.aiBusy) { state.aiAgain = true; return; }
+  state.aiBusy = true;
+  const gen = state.aiGen;
+  try {
+    const token = viewToken();
+    if (!token) {
+      state.data.ai = null;
+      setAiConn("warn", "Token gerekli");
+      renderAi();
+      return;
+    }
+    try {
+      const [providers, usage] = await Promise.all([
+        approvalCall(token, "/ai/providers"), approvalCall(token, "/ai/usage"),
+      ]);
+      if (gen !== state.aiGen) return;
+      state.data.ai = { providers, usage };
+      setAiConn("ok", "Bağlı");
+    } catch (e) {
+      if (gen !== state.aiGen) return;
+      state.data.ai = null;
+      setAiConn(e.status === 401 ? "warn" : "bad",
+        e.status === 401 ? "Token geçersiz" : (e.code === "BACKEND_UNREACHABLE" ? "Backend'e ulaşılamıyor" : e.message));
+    }
+    renderAi();
+  } finally {
+    state.aiBusy = false;
+    if (state.aiAgain || gen !== state.aiGen) {
+      state.aiAgain = false;
+      refreshAi();
+    }
+  }
+}
+
+async function aiChange(path, options, okText) {
+  if (!state.approvalToken) { toast("Önce kullanıcı tokenını gir", true); return false; }
+  try {
+    await approvalCall(state.approvalToken, path, options);
+    touchApprovalToken();
+    toast(okText);
+    return true;
+  } catch (e) {
+    toast(e.message || "İşlem başarısız", true);
+    return false;
+  } finally {
+    refreshAi();
+  }
+}
+
+function aiToggle(p) {
+  return aiChange("/ai/providers/" + enc(p.name) + "/enabled",
+    { method: "POST", body: { enabled: !p.enabled } }, p.name + (p.enabled ? " kapatıldı" : " açıldı"));
+}
+
+function aiRemove(p) {
+  if (!window.confirm("'" + p.name + "' hesabı silinsin mi? Kayıtlı API anahtarı da silinir.")) return Promise.resolve(false);
+  delete state.aiTests[p.name];
+  return aiChange("/ai/accounts/" + enc(p.name), { method: "DELETE" }, p.name + " silindi");
+}
+
+async function aiTest(p) {
+  if (!state.approvalToken) { toast("Önce kullanıcı tokenını gir", true); return; }
+  if (p.kind === "cloud" && !window.confirm("'" + p.name +
+    "' bulut sağlayıcıya küçük bir gerçek istek gönderilecek (günlük bütçeye sayılır). Devam?")) return;
+  state.aiTests[p.name] = { pending: true };
+  renderAi();
+  try {
+    const r = await approvalCall(state.approvalToken, "/ai/providers/" + enc(p.name) + "/test", { method: "POST" });
+    touchApprovalToken();
+    state.aiTests[p.name] = r.ok
+      ? { ok: true, latency: r.latency_ms, reply: clip(r.reply, 40) }
+      : { ok: false, latency: r.latency_ms, error: r.error || "bilinmeyen hata" };
+  } catch (e) {
+    state.aiTests[p.name] = { ok: false, error: e.message || "test başarısız" };
+  }
+  state.signatures.ai = null;
+  renderAi();
+  refreshAi();
+}
+
+async function aiAdd(ev) {
+  ev.preventDefault();
+  if (!state.approvalToken) { toast("Önce kullanıcı tokenını gir", true); return; }
+  const name = $("aiName").value.trim().toLowerCase();
+  const kind = $("aiKind").value;
+  const apiKey = $("aiKey").value;
+  if (!AI_NAME_RE.test(name)) { toast("Ad 2-31 karakter olmalı: a-z, 0-9, - veya _", true); return; }
+  if (kind === "cloud" && !apiKey) { toast("Bulut hesabı için API anahtarı gerekli", true); return; }
+  const body = {
+    name, kind, base_url: $("aiUrl").value.trim(), model: $("aiModel").value.trim(),
+    enabled: $("aiEnabled").checked,
+  };
+  if (apiKey) body.api_key = apiKey;
+  for (const [field, id] of [["price_in_per_1k", "aiPriceIn"], ["price_out_per_1k", "aiPriceOut"]]) {
+    const raw = $(id).value.trim();
+    if (raw !== "") body[field] = Number(raw);
+  }
+  $("aiKey").value = ""; // the secret leaves the form before anything is sent, success or not
+  const button = $("aiAddBtn");
+  button.disabled = true; // no double submit
+  const ok = await aiChange("/ai/accounts", { method: "POST", body }, name + " eklendi");
+  button.disabled = !state.approvalToken;
+  if (ok) {
+    $("aiAddForm").reset();
+    $("aiEnabled").checked = true;
+  }
+}
+
 function renderAll() {
   renderStop();
   renderAgents();
@@ -822,6 +1024,7 @@ function setTab(name) {
   document.querySelectorAll(".tab").forEach((s) => s.classList.toggle("hidden", s.id !== "tab-" + name));
   if (name === "backend") refreshBackend();
   if (name === "approvals") refreshApprovals();
+  if (name === "ai") refreshAi();
 }
 
 function setConversation(id) {
@@ -896,11 +1099,28 @@ function init() {
     setApprovalToken("");
     refreshApprovals();
   });
+  // The Yapay Zeka tab has its own input for the same in-memory user token.
+  $("aiTokenForm").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const value = $("aiToken").value.trim();
+    $("aiToken").value = ""; // do not leave the secret sitting in the DOM
+    setApprovalToken(value);
+    refreshApprovals();
+  });
+  $("forgetAiToken").addEventListener("click", () => {
+    $("aiToken").value = "";
+    setApprovalToken("");
+    refreshApprovals();
+  });
+  $("aiAddForm").addEventListener("submit", aiAdd);
   // Top-right "Unut" clears every token held by this panel.
   $("forgetToken").addEventListener("click", () => {
     state.token = "";
     state.backendToken = "";
     $("approvalToken").value = "";
+    $("aiToken").value = "";
+    $("aiKey").value = "";
+    state.aiTests = {};
     setApprovalToken("");
     state.me = null;
     state.signatures = {};
@@ -977,6 +1197,7 @@ function init() {
     refresh();
     if (state.tab === "backend") refreshBackend(); // backend data is only polled while it is visible
     refreshApprovals(); // cheap pending count always; the full view only on the Onaylar tab
+    if (state.tab === "ai") refreshAi();
   }, REFRESH_MS);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 }

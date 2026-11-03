@@ -30,10 +30,18 @@ BACKEND_GET_PATHS = frozenset({
     "/health", "/projects", "/jobs", "/jobs/summary", "/agents", "/ai/providers", "/ai/usage",
     "/exec/approvals", "/exec/status", "/exec/audit",
 })
-# The only backend writes the panel may forward: decide an approval, stop/resume execution.
-# Who may do it is still decided by the Backend from the token (approve/deny/resume need the
-# user token). Submitting actions (POST /exec) is for agents and is never forwarded.
-BACKEND_POST_PATHS = re.compile(r"^/exec/(?:approvals/[0-9]{1,9}/(?:approve|deny)|stop|resume)$")
+# The only backend writes the panel may forward. Who may do them is still decided by the
+# Backend from the token: approve/deny/resume and every AI-account change need the user token.
+#  * decide an approval, stop/resume execution (POST)
+#  * AI accounts: add (POST), switch on/off and test one (POST), remove (DELETE)
+# Submitting actions (POST /exec), AI calls (/ai/complete), the budget and memory are NOT
+# forwarded. Account names are checked here with the Backend's own rule (lower case only).
+_AI_NAME = r"[a-z0-9][a-z0-9_-]{1,30}"
+BACKEND_POST_PATHS = re.compile(
+    r"^(?:/exec/(?:approvals/[0-9]{1,9}/(?:approve|deny)|stop|resume)"
+    r"|/ai/accounts"
+    r"|/ai/providers/" + _AI_NAME + r"/(?:enabled|test))$")
+BACKEND_DELETE_PATHS = re.compile(r"^/ai/accounts/" + _AI_NAME + r"$")
 MAX_BODY = 1_000_000
 LOCAL_NAMES = {"127.0.0.1", "localhost", "[::1]"}
 FORWARDED_HEADERS = ("X-WACC-Token", "Content-Type")
@@ -113,7 +121,14 @@ def make_handler(hub_url: str, backend_url: str = DEFAULT_BACKEND):
         def do_PUT(self):
             self._json(405, {"detail": "Method not allowed"})
 
-        do_DELETE = do_PATCH = do_PUT
+        do_PATCH = do_PUT
+
+        def do_DELETE(self):
+            if not self._guard(write=True):
+                return
+            if self.path.startswith("/backend/"):
+                return self._backend("DELETE")
+            self._json(405, {"detail": "Method not allowed"})
 
         def _static(self):
             rel = urlsplit(self.path).path.lstrip("/") or "index.html"
@@ -152,9 +167,10 @@ def make_handler(hub_url: str, backend_url: str = DEFAULT_BACKEND):
             return self.rfile.read(length) if length else b""
 
         def _backend(self, method):
-            """Backend: /backend/<path> -> <backend>/<path>. Allow-listed: a few GET paths and
-            the approval/stop POSTs only (no AI calls, no memory, no job or project writes).
-            The Backend tokens are separate secrets; the Backend alone decides who may do what."""
+            """Backend: /backend/<path> -> <backend>/<path>. Allow-listed: a few GET paths, the
+            approval/stop POSTs and the AI-account writes only (no AI calls, no budget, no memory,
+            no job or project writes). The Backend tokens are separate secrets; the Backend
+            alone decides who may do what."""
             parts = urlsplit(self.path)
             path = parts.path[len("/backend"):] or "/"
             unreachable = "Backend'e ulasilamiyor (%s). Backend calisiyor mu?" % backend_url
@@ -164,6 +180,10 @@ def make_handler(hub_url: str, backend_url: str = DEFAULT_BACKEND):
                                                        "message": "Bu backend yolu panelden acik degil"}})
                 url = backend_url + path + ("?" + parts.query if parts.query else "")
                 return self._forward("GET", url, None, "BACKEND_UNREACHABLE", unreachable)
+            if method == "DELETE":
+                if not BACKEND_DELETE_PATHS.fullmatch(path):
+                    return self._json(405, {"detail": "Method not allowed"})
+                return self._forward("DELETE", backend_url + path, None, "BACKEND_UNREACHABLE", unreachable)
             if not BACKEND_POST_PATHS.fullmatch(path):
                 return self._json(405, {"detail": "Method not allowed"})
             body = self._read_body()
