@@ -40,6 +40,18 @@
         <button id="stopBtn" type="button" class="danger hidden">Acil durdur</button>
         <button id="resumeBtn" type="button" class="hidden">Devam ettir</button>
       </div>
+      <form id="agentForm" class="card form hidden" autocomplete="off">
+        <h2>Ajan ekle</h2>
+        <p class="hint">Yalnızca kullanıcı tokenı ile görünür. Token <b>bir kez</b> gösterilir. ChatGPT/Gemini web sohbetleri
+          yerel Hub'a bağlanamaz; çalışan yol API hesabı + worker'dır.</p>
+        <label>Ad <input id="agName" placeholder="gpt1" maxlength="20"></label>
+        <label>Tür <select id="agKind"><option value="claude">Claude</option><option value="gemini">Gemini</option>
+          <option value="chatgpt">ChatGPT</option><option value="other">Diğer</option></select></label>
+        <label>Rol <input id="agRole" placeholder="opsiyonel"></label>
+        <label>Bağlı AI hesabı <input id="agProvider" placeholder="opsiyonel (Yapay Zeka sekmesindeki ad)"></label>
+        <div class="actions"><button id="agAddBtn" type="submit">Ekle</button></div>
+        <div id="agToken" class="hidden"></div>
+      </form>
       <div id="agents" class="grid"></div>
     </section>
 
