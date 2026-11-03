@@ -50,6 +50,7 @@ class TasksScreen extends StatelessWidget {
       backgroundColor: Colors.transparent,
       floatingActionButton: state.isLeader
           ? FloatingActionButton.extended(
+              heroTag: 'tasks-fab',
               onPressed: () => _openCreate(context),
               icon: const Icon(Icons.add_task),
               label: const Text('Görev ver'),
