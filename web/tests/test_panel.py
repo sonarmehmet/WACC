@@ -156,6 +156,13 @@ class PanelTests(unittest.TestCase):
             status, _, _ = self.call(method, "/api/tasks", token="user")
             self.assertEqual(status, 405, method)
 
+    def test_only_agent_removal_is_forwarded_as_hub_delete(self):
+        for path in ("/api/agents/Upper", "/api/agents/a", "/api/agents/ab/cd", "/api/agents/", "/api/messages/1"):
+            status, _, _ = self.call("DELETE", path, token="user")
+            self.assertEqual(status, 405, path)
+        status, _, _ = self.call("DELETE", "/api/agents/gone-agent", token="user")
+        self.assertEqual(status, 404)  # reached the Hub, which says the agent is unknown
+
     # -------------------------------------------------------------------- proxy
     def test_health_is_proxied_without_token(self):
         status, body = self.api("GET", "/health", token=None)

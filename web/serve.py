@@ -41,6 +41,8 @@ BACKEND_POST_PATHS = re.compile(
     r"^(?:/exec/(?:approvals/[0-9]{1,9}/(?:approve|deny)|stop|resume)"
     r"|/ai/accounts"
     r"|/ai/providers/" + _AI_NAME + r"/(?:enabled|test))$")
+# Hub: removing a user-managed agent. The Hub alone decides (user token only; built-ins are refused).
+HUB_DELETE_PATHS = re.compile(r"^/api/agents/[a-z][a-z0-9_-]{1,19}$")
 BACKEND_DELETE_PATHS = re.compile(r"^/ai/accounts/" + _AI_NAME + r"$")
 MAX_BODY = 1_000_000
 LOCAL_NAMES = {"127.0.0.1", "localhost", "[::1]"}
@@ -128,6 +130,8 @@ def make_handler(hub_url: str, backend_url: str = DEFAULT_BACKEND):
                 return
             if self.path.startswith("/backend/"):
                 return self._backend("DELETE")
+            if HUB_DELETE_PATHS.fullmatch(self.path):
+                return self._proxy("DELETE")
             self._json(405, {"detail": "Method not allowed"})
 
         def _static(self):

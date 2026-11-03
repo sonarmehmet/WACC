@@ -225,12 +225,65 @@ function renderStop() {
   $("resumeBtn").classList.toggle("hidden", !on || state.me !== "user");
 }
 
+const AGENT_NAME_RE = /^[a-z][a-z0-9_-]{1,19}$/;
+
+async function agentCall(path, options, okText) {
+  try {
+    const r = await api(path, options);
+    toast(okText);
+    await refresh();
+    return r;
+  } catch (e) {
+    toast(e.message || "İşlem başarısız", true);
+    return null;
+  }
+}
+
+function agentActions(a) {
+  if (state.me !== "user" || a.agent_id === "user") return null;
+  const off = a.enabled === 0 || a.enabled === false;
+  const buttons = [el("button", {
+    type: "button", text: off ? "Aç" : "Kapat",
+    onclick: () => agentCall("/agents/" + enc(a.agent_id) + "/enabled",
+      { method: "POST", body: { enabled: off } }, a.agent_id + (off ? " açıldı" : " kapatıldı")),
+  })];
+  if (a.kind && a.kind !== "builtin") {
+    buttons.push(el("button", {
+      type: "button", class: "danger", text: "Sil",
+      onclick: () => {
+        if (!window.confirm("'" + a.agent_id + "' silinsin mi? Token iptal olur, görevleri BACKLOG'a döner.")) return;
+        agentCall("/agents/" + enc(a.agent_id), { method: "DELETE" }, a.agent_id + " silindi");
+      },
+    }));
+  }
+  return el("div", { class: "actions" }, ...buttons);
+}
+
+async function agentAdd(ev) {
+  ev.preventDefault();
+  const name = $("agName").value.trim().toLowerCase();
+  if (!AGENT_NAME_RE.test(name)) { toast("Ad 2-20 karakter: a-z, 0-9, - veya _ (harfle başlar)", true); return; }
+  const body = { name, kind: $("agKind").value, role: $("agRole").value.trim() };
+  const provider = $("agProvider").value.trim();
+  if (provider) body.provider = provider;
+  const r = await agentCall("/agents", { method: "POST", body }, name + " eklendi");
+  if (r && r.token) {
+    const box = $("agToken");
+    box.replaceChildren(el("p", { class: "hint", text: "Token (bir daha gösterilmez, şimdi kaydet):" }),
+      el("code", { text: r.token }));
+    box.classList.remove("hidden");
+    $("agentForm").reset();
+  }
+}
+
 function agentCard(a) {
-  return el("article", { class: "card agent" },
+  const off = a.enabled === 0 || a.enabled === false;
+  return el("article", { class: "card agent" + (off ? " off" : "") },
     el("div", { class: "head" },
       el("span", { class: "dot" + (a.online ? " on" : ""), title: a.online ? "çevrimiçi" : "çevrimdışı" }),
       el("h3", { text: a.agent_id }),
-      el("span", { class: "role", text: a.role })),
+      el("span", { class: "role", text: a.role }),
+      off ? chip("kapalı", "warn") : null),
     el("div", { class: "meta", text: "Durum: " + a.status + (a.current_task ? " · " + a.current_task : "") }),
     el("div", { class: "stats" },
       chip("Okunmamış " + a.unread, a.unread ? "warn" : ""),
@@ -240,13 +293,15 @@ function agentCard(a) {
       chip("Engelli " + a.blocked_tasks, a.blocked_tasks ? "bad" : "")),
     el("div", { class: "meta", text: "Son görülme: " + ago(a.last_seen) }),
     a.last_commit ? el("div", { class: "meta", text: "Son commit: " + String(a.last_commit).slice(0, 10) }) : null,
-    a.last_sent ? el("div", { class: "meta", text: "Son mesaj → " + a.last_sent.receiver + ": " + a.last_sent.subject }) : null);
+    a.last_sent ? el("div", { class: "meta", text: "Son mesaj → " + a.last_sent.receiver + ": " + a.last_sent.subject }) : null,
+    agentActions(a));
 }
 
 function renderAgents() {
   const box = $("agents");
+  $("agentForm").classList.toggle("hidden", state.me !== "user");
   const minute = Math.floor(Date.now() / 60000); // keeps "x dk önce" fresh
-  renderRegion("agents", box, [state.data.agents, minute], () => {
+  renderRegion("agents", box, [state.data.agents, minute, state.me], () => {
     const list = state.data.agents;
     box.replaceChildren(...(list.length ? list.map(agentCard) : [el("p", { class: "empty", text: "Henüz ajan yok." })]));
   });
@@ -1113,6 +1168,7 @@ function init() {
     refreshApprovals();
   });
   $("aiAddForm").addEventListener("submit", aiAdd);
+  $("agentForm").addEventListener("submit", agentAdd);
   // Top-right "Unut" clears every token held by this panel.
   $("forgetToken").addEventListener("click", () => {
     state.token = "";
