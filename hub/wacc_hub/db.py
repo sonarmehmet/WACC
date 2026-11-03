@@ -132,10 +132,27 @@ def connect(db_path=None) -> sqlite3.Connection:
     return conn
 
 
+AGENT_COLUMNS = (
+    ("kind", "TEXT NOT NULL DEFAULT 'builtin'"),   # builtin | claude | gemini | chatgpt | other
+    ("provider", "TEXT"),                          # optional AI account (backend /ai/providers name) the agent uses
+    ("enabled", "INTEGER NOT NULL DEFAULT 1"),
+    ("removed", "INTEGER NOT NULL DEFAULT 0"),
+    ("created_at", "TEXT"),
+)
+
+
+def _ensure_agent_columns(conn) -> None:
+    have = {r["name"] for r in conn.execute("PRAGMA table_info(agents)")}
+    for name, ddl in AGENT_COLUMNS:
+        if name not in have:
+            conn.execute(f"ALTER TABLE agents ADD COLUMN {name} {ddl}")
+
+
 def init_db(db_path=None) -> None:
     conn = connect(db_path)
     try:
         conn.executescript(SCHEMA)
+        _ensure_agent_columns(conn)
         for agent_id, role in AGENTS.items():
             conn.execute(
                 "INSERT OR IGNORE INTO agents(agent_id, role) VALUES (?, ?)",

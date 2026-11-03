@@ -80,3 +80,6 @@ Not: iş yükü (`payload`) veritabanında saklanır; içine sır koyma.
 - `POST /ai/providers/{ad}/test`: tek küçük gerçek istek; kapalı hesapta da çalışır, kullanım kaydına yazılır.
 - `POST /ai/budget` artık yalnızca kullanıcı token'ı ile (harcama sınırı insanın kararı).
 Bilinen sınır: anahtarlar düz JSON dosyasında (token dosyalarıyla aynı güven düzeyi); aynı bilgisayarda kendi kabuğunu çalıştıran bir ajan okuyabilir.
+
+## Dinamik ajanlar
+Hub `data/agents.json` yayımlar; `AgentTokenBook` bunu izler ve her kayıtlı, açık ajana `data/backend_tokens.json` içinde token üretir. Kapalı/silinmiş ajan 401 alır. `ai.complete` işi `agent` alanı verilirse ajanın bağlı hesabını kullanır; açık `provider` önceliklidir.

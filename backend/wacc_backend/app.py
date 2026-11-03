@@ -16,7 +16,7 @@ from .execution.service import EmergencyStop, ExecutionService
 from .accounts import AccountStore, public_view, to_provider
 from .orchestrator import Orchestrator, OrchestratorError, Provider, build_providers
 from .config import Settings, load_settings
-from .security import get_or_create_agent_tokens, get_or_create_token, get_or_create_user_token, token_matches
+from .security import AgentTokenBook, get_or_create_token, get_or_create_user_token, token_matches
 from .storage import Storage, StorageError
 
 STATUS_MAP = {"NOT_FOUND": 404, "DUPLICATE": 409, "FORBIDDEN": 403, "BAD_STATE": 409,
@@ -135,7 +135,7 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
             pass  # a stale or conflicting entry must not stop the backend from starting
     expected = token or get_or_create_token(settings)
     user_expected = user_token or get_or_create_user_token(settings)
-    agent_token_map = agent_tokens if agent_tokens is not None else get_or_create_agent_tokens(settings)
+    token_book = AgentTokenBook(settings, fixed=agent_tokens)
     approvals = Approvals(storage)
     stop = EmergencyStop(settings.data_dir, engine, approvals)
     execution = ExecutionService(storage, settings.exec_roots, executor or RealExecutor(settings.exec_roots), stop, approvals,
@@ -147,9 +147,9 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
         """Who is calling: 'user' (the human), an agent name (own token), or 'shared' (legacy read token)."""
         if token_matches(user_expected, x_wacc_token):
             return "user"
-        for name, tok in agent_token_map.items():
-            if token_matches(tok, x_wacc_token):
-                return name
+        name = token_book.who(x_wacc_token)
+        if name:
+            return name
         if token_matches(expected, x_wacc_token):
             return "shared"
         raise HTTPException(status_code=401, detail="Invalid or missing X-WACC-Token")

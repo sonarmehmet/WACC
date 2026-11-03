@@ -22,7 +22,7 @@ def main() -> int:
     worker = None
     if os.environ.get("WACC_WORKER", "1") == "1":
         from .worker import Worker, register_builtin_handlers
-        register_builtin_handlers(app.state.engine, app.state.orchestrator, app.state.execution)
+        register_builtin_handlers(app.state.engine, app.state.orchestrator, app.state.execution, settings.data_dir)
         worker = Worker(app.state.engine)
         worker.start()
         print("[WACC] Is isleyici (worker) acik: ai.complete ve exec.run isleri calisir. Kapatmak: WACC_WORKER=0")

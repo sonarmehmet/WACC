@@ -109,10 +109,24 @@ class Hub:
             (db.utcnow(), actor, action, str(detail)[:2000]),
         )
 
-    @staticmethod
-    def _check_agent(agent, allow_user=True):
-        if agent not in AGENTS or (agent == "user" and not allow_user):
+    def _is_worker(self, agent) -> bool:
+        """Every registered, switched-on agent except the human is a worker (built-in or added by the user)."""
+        if not isinstance(agent, str) or agent == "user":
+            return False
+        row = self.query_one("SELECT enabled, removed FROM agents WHERE agent_id=?", (agent,))
+        return bool(row and row["enabled"] and not row["removed"])
+
+    def _check_agent(self, agent, allow_user=True):
+        """The agent must be a built-in or a registered one, and switched on (the user is always on)."""
+        if agent == "user":
+            if not allow_user:
+                raise HubError("UNKNOWN_AGENT", f"Unknown agent: {agent!r}")
+            return
+        row = self.query_one("SELECT enabled, removed FROM agents WHERE agent_id=?", (agent,)) if isinstance(agent, str) else None
+        if row is None or row["removed"]:
             raise HubError("UNKNOWN_AGENT", f"Unknown agent: {agent!r}")
+        if not row["enabled"]:
+            raise HubError("AGENT_DISABLED", f"Agent {agent!r} is switched off")
 
     @staticmethod
     def _stopped(conn) -> bool:
@@ -150,7 +164,8 @@ class Hub:
             raise HubError("UNKNOWN_TASK", f"Unknown task: {task_id}")
 
         if receiver == BROADCAST:
-            targets = [a for a in AGENTS if a != sender]
+            targets = [r["agent_id"] for r in self.query("SELECT agent_id FROM agents WHERE enabled=1 AND removed=0")
+                       if r["agent_id"] != sender]
         else:
             targets = [receiver]
         conv = conversation_id or (f"CONV-{task_id}" if task_id else f"CONV-{uuid.uuid4().hex[:10]}")
@@ -440,7 +455,7 @@ class Hub:
 
     # --------------------------------------------------------------- locks
     def acquire_lock(self, agent, path, task_id=None, ttl=DEFAULT_LOCK_TTL, takeover=False):
-        if agent not in WORKERS:
+        if not self._is_worker(agent):
             raise HubError("FORBIDDEN", "Only worker agents can hold locks")
         path = normalize_path(path)
         ttl = max(30, min(int(ttl), MAX_LOCK_TTL))
@@ -590,7 +605,7 @@ class Hub:
 
     def session_end(self, agent, notes, git_commit=None, branch=None):
         """Usage limit reached or session closing: save state and free every lock."""
-        if agent not in WORKERS:
+        if not self._is_worker(agent):
             raise HubError("FORBIDDEN", "Only worker agents have sessions")
         with self.tx() as conn:
             cur_task = conn.execute("SELECT current_task FROM agents WHERE agent_id=?", (agent,)).fetchone()["current_task"]
@@ -608,7 +623,7 @@ class Hub:
 
     def session_start(self, agent):
         """Resume bundle: everything an agent needs to continue after a restart."""
-        if agent not in WORKERS:
+        if not self._is_worker(agent):
             raise HubError("FORBIDDEN", "Only worker agents have sessions")
         self.heartbeat(agent, status="ACTIVE")
         locks = self.list_locks()
@@ -662,7 +677,7 @@ class Hub:
     def overview(self):
         now = db.utcnow()
         out = []
-        for a in self.query("SELECT * FROM agents ORDER BY agent_id"):
+        for a in self.query("SELECT * FROM agents WHERE removed=0 ORDER BY agent_id"):
             aid = a["agent_id"]
             last_sent = self.query_one("SELECT subject, receiver, timestamp FROM messages WHERE sender=? "
                                        "ORDER BY timestamp DESC LIMIT 1", (aid,))
@@ -676,6 +691,89 @@ class Hub:
             a["blocked_tasks"] = len([t for t in tasks if t["status"] == "BLOCKED"])
             out.append(a)
         return out
+
+    # ------------------------------------------------------- agent accounts (user-managed)
+    AGENT_KINDS = ("claude", "gemini", "chatgpt", "other")
+    RESERVED_NAMES = {"user", "all", "system", "hub", "backend", "worker"}
+
+    def _publish_registry(self):
+        """Non-secret list of agents for the other services (data/agents.json). The Hub stays the authority."""
+        import json as _json
+        rows = self.query("SELECT agent_id, kind, role, provider, enabled FROM agents WHERE removed=0 AND agent_id!='user' "
+                          "ORDER BY agent_id")
+        out = [{"name": r["agent_id"], "kind": r["kind"], "role": r["role"], "provider": r["provider"],
+                "enabled": bool(r["enabled"])} for r in rows]
+        path = Path(self.db_path).parent / "agents.json"
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(_json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(path)
+
+    def register_agent(self, actor, name, kind="other", role="", provider=None):
+        import re as _re
+        if actor != "user":
+            raise HubError("FORBIDDEN", "Only the user can add agent accounts")
+        name = (name or "").strip().lower()
+        if not _re.fullmatch(r"[a-z][a-z0-9_-]{1,19}", name):
+            raise HubError("BAD_NAME", "Name: 2-20 characters, starts with a letter, a-z 0-9 '-' '_'")
+        if name in self.RESERVED_NAMES or name in AGENTS:
+            raise HubError("BAD_NAME", f"{name!r} is reserved")
+        if kind not in self.AGENT_KINDS:
+            raise HubError("BAD_KIND", f"kind must be one of {self.AGENT_KINDS}")
+        role = (role or kind.upper() + "_WORKER").strip()[:60]
+        provider = (provider or "").strip() or None
+        if provider is not None and not _re.fullmatch(r"[a-z0-9][a-z0-9_-]{1,30}", provider):
+            raise HubError("BAD_PROVIDER", "provider must be the name of an AI account")
+        with self.tx() as conn:
+            row = conn.execute("SELECT removed FROM agents WHERE agent_id=?", (name,)).fetchone()
+            if row and not row["removed"]:
+                raise HubError("DUPLICATE", f"Agent {name!r} already exists")
+            if row:  # a removed account is being added again: start fresh
+                conn.execute("UPDATE agents SET kind=?, role=?, provider=?, enabled=1, removed=0, status='OFFLINE', "
+                             "created_at=? WHERE agent_id=?", (kind, role, provider, db.utcnow(), name))
+            else:
+                conn.execute("INSERT INTO agents(agent_id, role, kind, provider, enabled, removed, created_at) "
+                             "VALUES (?,?,?,?,1,0,?)", (name, role, kind, provider, db.utcnow()))
+            self._audit(conn, actor, "AGENT_ADDED", f"{name} ({kind})")
+        self._publish_registry()
+        return self.query_one("SELECT * FROM agents WHERE agent_id=?", (name,))
+
+    def set_agent_enabled(self, actor, name, enabled):
+        if actor != "user":
+            raise HubError("FORBIDDEN", "Only the user can switch agents on or off")
+        if name == "user":
+            raise HubError("BAD_NAME", "The user cannot be switched off")
+        with self.tx() as conn:
+            row = conn.execute("SELECT removed FROM agents WHERE agent_id=?", (name,)).fetchone()
+            if row is None or row["removed"]:
+                raise HubError("UNKNOWN_AGENT", f"Unknown agent: {name!r}")
+            conn.execute("UPDATE agents SET enabled=? WHERE agent_id=?", (1 if enabled else 0, name))
+            self._audit(conn, actor, "AGENT_ENABLED" if enabled else "AGENT_DISABLED", name)
+        self._publish_registry()
+        return self.query_one("SELECT * FROM agents WHERE agent_id=?", (name,))
+
+    def remove_agent(self, actor, name):
+        """Dynamic accounts only; built-ins can be switched off but not removed. History is kept."""
+        if actor != "user":
+            raise HubError("FORBIDDEN", "Only the user can remove agent accounts")
+        if name in AGENTS:
+            raise HubError("NOT_REMOVABLE", f"{name!r} is built in; switch it off instead")
+        with self.tx() as conn:
+            row = conn.execute("SELECT removed FROM agents WHERE agent_id=?", (name,)).fetchone()
+            if row is None or row["removed"]:
+                raise HubError("UNKNOWN_AGENT", f"Unknown agent: {name!r}")
+            conn.execute("UPDATE agents SET removed=1, enabled=0, status='OFFLINE', current_task=NULL WHERE agent_id=?", (name,))
+            conn.execute("UPDATE tasks SET owner=NULL, status='BACKLOG' WHERE owner=? AND status IN "
+                         "('ASSIGNED','ACCEPTED','IN_PROGRESS','REVIEW','BLOCKED')", (name,))
+            conn.execute("DELETE FROM locks WHERE owner=?", (name,))
+            self._audit(conn, actor, "AGENT_REMOVED", name)
+        self._publish_registry()
+        return {"removed": True, "name": name}
+
+    def agent_enabled(self, name) -> bool:
+        if name == "user":
+            return True
+        row = self.query_one("SELECT enabled, removed FROM agents WHERE agent_id=?", (name,))
+        return bool(row and row["enabled"] and not row["removed"])
 
     @staticmethod
     def _age(ts, now):

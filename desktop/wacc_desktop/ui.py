@@ -4,7 +4,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from .client import ApiError, WaccClient, describe_approval, describe_provider
+from .client import ApiError, WaccClient, describe_agent, describe_approval, describe_provider
 
 REFRESH_MS = 5000
 
@@ -47,7 +47,16 @@ class App(tk.Tk):
 
         tabs = ttk.Notebook(self)
         tabs.pack(fill="both", expand=True, padx=6, pady=6)
-        self.agents_box = self._tab(tabs, "Ajanlar")
+        agents_tab = ttk.Frame(tabs)
+        tabs.add(agents_tab, text="Ajanlar")
+        self.agents_box = tk.Listbox(agents_tab, activestyle="none")
+        self.agents_box.pack(fill="both", expand=True, padx=4, pady=4)
+        arow = ttk.Frame(agents_tab)
+        arow.pack(fill="x", padx=4, pady=(0, 4))
+        for label, cmd in (("Ajan ekle", self.add_agent), ("Aç / Kapat", self.toggle_agent), ("Sil", self.remove_agent)):
+            ttk.Button(arow, text=label, command=cmd).pack(side="left", padx=(0, 6))
+        ttk.Label(arow, text="Claude, Gemini, ChatGPT ya da başka istediğin kadar hesap. Değiştirmek için Hub token'ı olarak kullanıcı token'ını gir.").pack(side="left", padx=6)
+        self._agents = []
         self.tasks_box = self._tab(tabs, "Görevler")
         self.audit_box = self._tab(tabs, "Denetim")
 
@@ -94,8 +103,8 @@ class App(tk.Tk):
     def refresh(self, schedule=True):
         problems = []
         try:
-            self._fill(self.agents_box, [f"{a.get('id') or a.get('name')}  {a.get('status', '')}  {a.get('current_task') or ''}"
-                                         for a in self.client.agents()])
+            self._agents = [a for a in self.client.agents() if a.get("agent_id") != "user"]
+            self._fill(self.agents_box, [describe_agent(a) for a in self._agents])
             self._fill(self.tasks_box, [f"{t.get('id')}  [{t.get('status')}]  {t.get('owner') or '-'}  {t.get('title')}"
                                         for t in self.client.tasks()])
         except ApiError as exc:
@@ -128,6 +137,39 @@ class App(tk.Tk):
         except ApiError as exc:
             messagebox.showerror("WACC", exc.message)
         self.refresh(schedule=False)
+
+    def _selected_agent(self):
+        sel = self.agents_box.curselection()
+        return self._agents[sel[0]] if sel else None
+
+    def add_agent(self):
+        dialog = AgentDialog(self, [p["name"] for p in self._providers])
+        self.wait_window(dialog)
+        if not dialog.result:
+            return
+        res = self._call(self.client.register_agent, **dialog.result)
+        if res is None:
+            return
+        self.refresh(schedule=False)
+        messagebox.showinfo(
+            "WACC", f"Ajan eklendi: {res['agent']['agent_id']}\n\nBu ajanın Hub token'ı (yalnızca şimdi gösterilir, "
+                    f"data\\tokens.json içinde de durur):\n\n{res['token']}\n\nToken'ı yalnızca o ajan oturumuna ver, başkasıyla paylaşma.")
+
+    def toggle_agent(self):
+        a = self._selected_agent()
+        if a and self._call(self.client.set_agent_enabled, a["agent_id"], not a.get("enabled", 1)) is not None:
+            self.refresh(schedule=False)
+
+    def remove_agent(self):
+        a = self._selected_agent()
+        if not a:
+            return
+        if a.get("kind", "builtin") == "builtin":
+            messagebox.showinfo("WACC", "Hazır ajanlar silinmez, yalnızca kapatılabilir (Aç / Kapat).")
+            return
+        if messagebox.askyesno("WACC", f"{a['agent_id']} silinsin mi? Token'ı iptal olur, açık görevleri boşa düşer, kilitleri kalkar."):
+            if self._call(self.client.remove_agent, a["agent_id"]) is not None:
+                self.refresh(schedule=False)
 
     def _selected_provider(self):
         sel = self.provider_list.curselection()
@@ -189,6 +231,36 @@ class App(tk.Tk):
         except ApiError as exc:
             messagebox.showerror("WACC", exc.message)
         self.refresh(schedule=False)
+
+
+class AgentDialog(tk.Toplevel):
+    """Add an agent account of any kind. 'Bağlı yapay zeka hesabı' is optional (an account from the Yapay Zeka tab)."""
+
+    def __init__(self, parent, provider_names):
+        super().__init__(parent)
+        self.title("Ajan ekle")
+        self.result = None
+        self.transient(parent)
+        self.vars = {"name": tk.StringVar(), "kind": tk.StringVar(value="claude"), "role": tk.StringVar(),
+                     "provider": tk.StringVar()}
+        rows = (("Ad (küçük harf, örn. claude4, gpt1)", "name", None), ("Tür", "kind", ("claude", "gemini", "chatgpt", "other")),
+                ("Rol (boşsa türe göre)", "role", None), ("Bağlı yapay zeka hesabı (isteğe bağlı)", "provider", [""] + list(provider_names)))
+        for i, (label, key, values) in enumerate(rows):
+            ttk.Label(self, text=label).grid(row=i, column=0, sticky="w", padx=8, pady=3)
+            if values is not None:
+                widget = ttk.Combobox(self, textvariable=self.vars[key], values=values, state="readonly", width=38)
+            else:
+                widget = ttk.Entry(self, textvariable=self.vars[key], width=40)
+            widget.grid(row=i, column=1, padx=8, pady=3)
+        buttons = ttk.Frame(self)
+        buttons.grid(row=len(rows), column=0, columnspan=2, pady=8)
+        ttk.Button(buttons, text="Ekle", command=self._ok).pack(side="left", padx=6)
+        ttk.Button(buttons, text="Vazgeç", command=self.destroy).pack(side="left")
+        self.grab_set()
+
+    def _ok(self):
+        self.result = {k: v.get().strip() for k, v in self.vars.items()}
+        self.destroy()
 
 
 class AccountDialog(tk.Toplevel):
