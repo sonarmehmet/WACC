@@ -34,6 +34,99 @@ class AgentsScreen extends StatelessWidget {
     }
   }
 
+  void _snack(BuildContext context, String text) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  Future<void> _add(BuildContext context) async {
+    final name = TextEditingController();
+    final role = TextEditingController();
+    final provider = TextEditingController();
+    var kind = 'claude';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: const Text('Ajan ekle'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: name,
+                  decoration: const InputDecoration(labelText: 'Ad (a-z, 0-9, - veya _)'),
+                ),
+                DropdownButton<String>(
+                  value: kind,
+                  isExpanded: true,
+                  items: const [
+                    DropdownMenuItem(value: 'claude', child: Text('Claude')),
+                    DropdownMenuItem(value: 'gemini', child: Text('Gemini')),
+                    DropdownMenuItem(value: 'chatgpt', child: Text('ChatGPT')),
+                    DropdownMenuItem(value: 'other', child: Text('Diğer')),
+                  ],
+                  onChanged: (v) => setLocal(() => kind = v ?? kind),
+                ),
+                TextField(controller: role, decoration: const InputDecoration(labelText: 'Rol (opsiyonel)')),
+                TextField(
+                  controller: provider,
+                  decoration: const InputDecoration(labelText: 'Bağlı AI hesabı (opsiyonel)'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Vazgeç')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Ekle')),
+          ],
+        ),
+      ),
+    );
+    final n = name.text.trim().toLowerCase();
+    final r = role.text.trim();
+    final p = provider.text.trim();
+    name.dispose();
+    role.dispose();
+    provider.dispose();
+    if (ok != true) return;
+    final (err, token) = await state.addAgent(n, kind, r, p);
+    if (!context.mounted) return;
+    if (err != null) {
+      _snack(context, err);
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('$n eklendi'),
+        content: SelectableText('Token (bir daha gösterilmez, şimdi kaydet):\n\n$token'),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Tamam'))],
+      ),
+    );
+  }
+
+  Future<void> _toggle(BuildContext context, Agent a) async {
+    final err = await state.setAgentEnabled(a.id, !a.enabled);
+    if (err != null && context.mounted) _snack(context, err);
+  }
+
+  Future<void> _remove(BuildContext context, Agent a) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text("'${a.id}' silinsin mi?"),
+        content: const Text('Token iptal olur, görevleri BACKLOG\'a döner. Geçmiş kalır.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Vazgeç')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sil')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final err = await state.removeAgent(a.id);
+    if (err != null && context.mounted) _snack(context, err);
+  }
+
   @override
   Widget build(BuildContext context) {
     final agents = state.agents;
@@ -67,6 +160,15 @@ class AgentsScreen extends StatelessWidget {
                 label: const Text('Acil durdur'),
               ),
             ),
+          if (state.isUser)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () => _add(context),
+                icon: const Icon(Icons.person_add_alt_1),
+                label: const Text('Ajan ekle'),
+              ),
+            ),
           if (agents.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 48),
@@ -79,7 +181,12 @@ class AgentsScreen extends StatelessWidget {
                 ),
               ),
             ),
-          for (final agent in agents) AgentCard(agent: agent),
+          for (final agent in agents)
+            AgentCard(
+              agent: agent,
+              onToggle: state.isUser && agent.id != 'user' ? () => _toggle(context, agent) : null,
+              onRemove: state.isUser && agent.removable ? () => _remove(context, agent) : null,
+            ),
         ],
       ),
     );
@@ -87,9 +194,11 @@ class AgentsScreen extends StatelessWidget {
 }
 
 class AgentCard extends StatelessWidget {
-  const AgentCard({super.key, required this.agent});
+  const AgentCard({super.key, required this.agent, this.onToggle, this.onRemove});
 
   final Agent agent;
+  final VoidCallback? onToggle;
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -113,6 +222,7 @@ class AgentCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Text(agent.id, style: Theme.of(context).textTheme.titleMedium),
+                if (!agent.enabled) const Padding(padding: EdgeInsets.only(left: 6), child: _Pill('kapalı', warn: true)),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -152,6 +262,15 @@ class AgentCard extends StatelessWidget {
               ),
             if (lastSent != null)
               Text(lastSent, style: Theme.of(context).textTheme.bodySmall),
+            if (onToggle != null || onRemove != null)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  if (onToggle != null)
+                    TextButton(onPressed: onToggle, child: Text(agent.enabled ? 'Kapat' : 'Aç')),
+                  if (onRemove != null) TextButton(onPressed: onRemove, child: const Text('Sil')),
+                ],
+              ),
           ],
         ),
       ),

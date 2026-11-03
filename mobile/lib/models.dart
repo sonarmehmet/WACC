@@ -61,6 +61,8 @@ class Agent {
     this.blockedTasks = 0,
     this.lastSentSubject,
     this.lastSentReceiver,
+    this.kind = 'builtin',
+    this.enabled = true,
   });
 
   factory Agent.fromJson(Map<String, dynamic> j) {
@@ -80,6 +82,8 @@ class Agent {
       blockedTasks: _int(j['blocked_tasks']),
       lastSentSubject: lastSent is Map ? _str(lastSent['subject']) : null,
       lastSentReceiver: lastSent is Map ? _str(lastSent['receiver']) : null,
+      kind: _str(j['kind']) ?? 'builtin',
+      enabled: j['enabled'] == null ? true : _bool(j['enabled']),
     );
   }
 
@@ -97,6 +101,11 @@ class Agent {
   final int blockedTasks;
   final String? lastSentSubject;
   final String? lastSentReceiver;
+  final String kind;
+  final bool enabled;
+
+  /// Dynamic accounts (added by the user) can be removed; built-in ones can only be switched off.
+  bool get removable => kind != 'builtin';
 }
 
 class FeedMessage {

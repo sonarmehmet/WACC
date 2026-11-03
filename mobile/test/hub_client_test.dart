@@ -108,4 +108,22 @@ void main() {
       throwsA(isA<HubException>().having((e) => e.code, 'code', 'BAD_RESPONSE')),
     );
   });
+
+  test('agent management: token comes back once, names are encoded, token only in the header', () async {
+    final seen = <http.Request>[];
+    final client = _client(MockClient((request) async {
+      seen.add(request);
+      return _json({'agent': {'agent_id': 'gpt1'}, 'token': 'new-agent-token'}, request.method == 'POST' ? 201 : 200);
+    }));
+    expect(await client.registerAgent(name: 'gpt1', kind: 'chatgpt', provider: 'acc'), 'new-agent-token');
+    await client.setAgentEnabled('gpt1', false);
+    await client.removeAgent('a/b');
+    expect(seen[0].url.path, '/agents');
+    expect(jsonDecode(seen[0].body), {'name': 'gpt1', 'kind': 'chatgpt', 'role': '', 'provider': 'acc'});
+    expect(seen[1].url.path, '/agents/gpt1/enabled');
+    expect(jsonDecode(seen[1].body), {'enabled': false});
+    expect(seen[2].method, 'DELETE');
+    expect(seen[2].url.toString(), 'http://hub.test:8765/agents/a%2Fb');
+    expect(seen[0].headers['X-WACC-Token'], 'secret-token');
+  });
 }
