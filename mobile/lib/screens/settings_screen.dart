@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app_state.dart';
 import '../settings.dart';
+import 'ai_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key, required this.state});
@@ -132,6 +133,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
         OutlinedButton(
           onPressed: _saving ? null : () => _save(forgetToken: true),
           child: const Text('Tokenı sil'),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          key: const Key('openAi'),
+          icon: const Icon(Icons.psychology_outlined),
+          label: const Text('Yapay zeka hesapları'),
+          onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+            builder: (_) => AiScreen(state: state.ai, approvals: state.approvals),
+          )),
         ),
         const SizedBox(height: 16),
         Text(

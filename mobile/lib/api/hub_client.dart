@@ -77,6 +77,9 @@ class _JsonClient {
       if (method == 'GET') {
         return await _client.get(uri, headers: headers).timeout(timeout);
       }
+      if (method == 'DELETE') {
+        return await _client.delete(uri, headers: headers).timeout(timeout);
+      }
       headers['Content-Type'] = 'application/json';
       return await _client
           .post(uri, headers: headers, body: body == null ? null : jsonEncode(body))
@@ -267,6 +270,31 @@ class BackendClient extends _JsonClient {
   Future<void> resumeExec() async {
     await _send('POST', '/exec/resume');
   }
+
+  // ------------------------------------------------------------ AI accounts
+  Future<List<AiProvider>> aiProviders() async =>
+      _list(await _send('GET', '/ai/providers')).map(AiProvider.fromJson).toList();
+
+  Future<AiUsage> aiUsage() async => AiUsage.fromJson(_map(await _send('GET', '/ai/usage')));
+
+  /// User token only. The API key goes out in this one request and never comes back.
+  Future<void> addAiAccount(Map<String, Object?> account) async {
+    await _send('POST', '/ai/accounts', body: account);
+  }
+
+  /// User token only.
+  Future<void> removeAiAccount(String name) async {
+    await _send('DELETE', '/ai/accounts/${Uri.encodeComponent(name)}');
+  }
+
+  /// User token only.
+  Future<void> setAiEnabled(String name, bool enabled) async {
+    await _send('POST', '/ai/providers/${Uri.encodeComponent(name)}/enabled', body: {'enabled': enabled});
+  }
+
+  /// User token only. Sends one small real request to the provider.
+  Future<AiTestResult> testAiProvider(String name) async => AiTestResult.fromJson(
+      _map(await _send('POST', '/ai/providers/${Uri.encodeComponent(name)}/test')));
 }
 
 typedef BackendClientFactory = BackendClient Function(String baseUrl, String token);

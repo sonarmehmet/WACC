@@ -49,6 +49,12 @@ class ApprovalsState extends ChangeNotifier {
 
   BackendClient? get _active => _approvalClient ?? _viewClient;
 
+  /// For the AI accounts screen: the client to read with, the user's client (memory-only
+  /// token) for changes, and a way to keep the token alive while it is being used.
+  BackendClient? get readClient => _active;
+  BackendClient? get userClient => _approvalClient;
+  void keepTokenAlive() => _touch();
+
   /// True while the approvals screen is on screen: then history, audit and status are fetched
   /// too; otherwise only the pending count is polled.
   bool get watching => _watching;

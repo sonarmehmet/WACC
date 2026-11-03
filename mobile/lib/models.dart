@@ -336,3 +336,68 @@ String remainingText(String? expiresIso, {DateTime? now}) {
   if (seconds <= 0) return 'süresi doldu';
   return '${seconds ~/ 60} dk ${(seconds % 60).toString().padLeft(2, '0')} sn kaldı';
 }
+
+double _double(Object? v) => v is num ? v.toDouble() : (double.tryParse('$v') ?? 0);
+
+/// An AI provider known to the Backend (an account added by the user, or one from llm.env).
+/// All text comes from the Backend: show it with Text widgets only. The API key is never part
+/// of this object: the Backend does not return it.
+class AiProvider {
+  const AiProvider({
+    required this.name,
+    required this.kind,
+    required this.model,
+    required this.enabled,
+    required this.source,
+    this.priceIn = 0,
+    this.priceOut = 0,
+  });
+
+  factory AiProvider.fromJson(Map<String, dynamic> j) => AiProvider(
+        name: j['name']?.toString() ?? '?',
+        kind: j['kind']?.toString() ?? '?',
+        model: j['model']?.toString() ?? '',
+        enabled: _bool(j['enabled']),
+        source: j['source']?.toString() ?? 'env',
+        priceIn: _double(j['price_in_per_1k']),
+        priceOut: _double(j['price_out_per_1k']),
+      );
+
+  final String name;
+  final String kind; // local | cloud
+  final String model;
+  final bool enabled;
+  final String source; // account | env
+  final double priceIn;
+  final double priceOut;
+
+  /// Only accounts can be removed; environment providers can only be switched on or off.
+  bool get removable => source == 'account';
+  bool get isCloud => kind == 'cloud';
+}
+
+class AiUsage {
+  const AiUsage({required this.budgetUsd, required this.spentUsd});
+
+  factory AiUsage.fromJson(Map<String, dynamic> j) =>
+      AiUsage(budgetUsd: _double(j['budget_usd']), spentUsd: _double(j['spent_usd']));
+
+  final double budgetUsd;
+  final double spentUsd;
+}
+
+class AiTestResult {
+  const AiTestResult({required this.ok, this.reply = '', this.error = '', this.latencyMs = 0});
+
+  factory AiTestResult.fromJson(Map<String, dynamic> j) => AiTestResult(
+        ok: _bool(j['ok']),
+        reply: j['reply']?.toString() ?? '',
+        error: j['error']?.toString() ?? '',
+        latencyMs: _int(j['latency_ms']),
+      );
+
+  final bool ok;
+  final String reply;
+  final String error;
+  final int latencyMs;
+}

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import 'api/hub_client.dart';
+import 'ai_state.dart';
 import 'approvals_state.dart';
 import 'models.dart';
 import 'settings.dart';
@@ -18,7 +19,12 @@ class AppState extends ChangeNotifier {
     this.pollInterval = const Duration(seconds: 5),
     Duration approvalIdleTimeout = const Duration(minutes: 5),
   })  : _factory = clientFactory ?? ((url, token) => HubClient(baseUrl: url, token: token)),
-        approvals = ApprovalsState(factory: backendFactory, idleTimeout: approvalIdleTimeout);
+        approvals = ApprovalsState(factory: backendFactory, idleTimeout: approvalIdleTimeout) {
+    ai = AiState(approvals);
+  }
+
+  /// AI accounts (Backend). Reads with the Backend token; changes need the user token.
+  late final AiState ai;
 
   /// Approval requests and decisions (Backend). Owned here so settings changes reach it.
   final ApprovalsState approvals;
@@ -194,6 +200,7 @@ class AppState extends ChangeNotifier {
     _disposed = true;
     _timer?.cancel();
     _client?.close();
+    ai.dispose();
     approvals.dispose();
     super.dispose();
   }
