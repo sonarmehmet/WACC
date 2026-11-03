@@ -282,16 +282,14 @@ class _AiScreenState extends State<AiScreen> {
               decoration: const InputDecoration(labelText: 'Ad (a-z, 0-9, -, _)', border: OutlineInputBorder()),
             ),
             const SizedBox(height: 8),
-            // ignore: deprecated_member_use
-            DropdownButtonFormField<String>(
+            SegmentedButton<String>(
               key: const Key('aiKind'),
-              value: _kind,
-              items: const [
-                DropdownMenuItem(value: 'local', child: Text('Yerel (loopback)')),
-                DropdownMenuItem(value: 'cloud', child: Text('Bulut (https + anahtar)')),
+              segments: const [
+                ButtonSegment(value: 'local', label: Text('Yerel (loopback)')),
+                ButtonSegment(value: 'cloud', label: Text('Bulut (https)')),
               ],
-              onChanged: (v) => setState(() => _kind = v ?? 'local'),
-              decoration: const InputDecoration(labelText: 'Tür', border: OutlineInputBorder()),
+              selected: {_kind},
+              onSelectionChanged: (v) => setState(() => _kind = v.first),
             ),
             const SizedBox(height: 8),
             TextField(
