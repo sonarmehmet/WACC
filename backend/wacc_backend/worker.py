@@ -1,6 +1,7 @@
 """Background job runner. Built-in job kinds:
 
-  ai.complete  payload {prompt, system?, prefer?, provider?, max_tokens?} -> orchestrator result
+  ai.complete  payload {prompt, system?, prefer?, provider?, agent?, max_tokens?} -> orchestrator result
+               (agent: an agent account linked to an AI account uses that account when no provider is given)
   exec.run     payload {action, approval_id?}                            -> ExecutionService result
 
 exec.run goes through the same policy, approval, audit and emergency-stop checks as POST /exec, so a job
@@ -13,17 +14,24 @@ import threading
 from typing import Optional
 
 from .engine import PermanentJobError, TaskEngine
+from .security import registry_agents
 from .storage import StorageError
 
 
-def register_builtin_handlers(engine: TaskEngine, orchestrator, execution) -> None:
+def register_builtin_handlers(engine: TaskEngine, orchestrator, execution, data_dir=None) -> None:
     def ai_complete(job: dict):
         p = job.get("payload") or {}
         if not isinstance(p, dict) or not isinstance(p.get("prompt"), str):
             raise PermanentJobError("ai.complete needs a payload with a string 'prompt'")
+        provider = p.get("provider")
+        if not provider and data_dir and isinstance(p.get("agent"), str):
+            # an agent account linked to an AI account uses that account (if it is still on)
+            for a in registry_agents(data_dir):
+                if a["name"] == p["agent"] and a["enabled"] and a["provider"]:
+                    provider = a["provider"]
         try:
             return orchestrator.complete(p["prompt"], p.get("system"), p.get("prefer", "auto"),
-                                         p.get("provider"), int(p.get("max_tokens", 1024)))
+                                         provider, int(p.get("max_tokens", 1024)))
         except (ValueError, TypeError) as exc:
             raise PermanentJobError(f"Bad ai.complete payload: {exc}")
         # OrchestratorError / provider failures propagate: the engine retries them with backoff

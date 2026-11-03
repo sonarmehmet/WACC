@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from wacc_desktop.client import Api, ApiError, WaccClient, describe_approval, describe_provider  # noqa: E402
+from wacc_desktop.client import Api, ApiError, WaccClient, describe_agent, describe_approval, describe_provider  # noqa: E402
 
 SEEN = []
 
@@ -117,6 +117,24 @@ class ClientTests(unittest.TestCase):
         self.assertIn("yerel", line)
         self.assertIn("hesap", line)
         self.assertNotIn("api_key", describe_provider({"name": "a", "kind": "cloud", "api_key": "sk-1"}))
+
+
+    def test_agent_management_calls_the_hub_with_the_hub_token(self):
+        c = WaccClient(hub_token="hub-user", hub_url=self.url)
+        c.register_agent("gpt1", "chatgpt", "", "my-openai")
+        self.assertEqual(SEEN[-1], ("POST", "/agents", "hub-user", {"name": "gpt1", "kind": "chatgpt", "role": "", "provider": "my-openai"}))
+        c.register_agent("claude4", "claude")
+        self.assertNotIn("provider", SEEN[-1][3])
+        c.set_agent_enabled("gpt1", False)
+        self.assertEqual(SEEN[-1], ("POST", "/agents/gpt1/enabled", "hub-user", {"enabled": False}))
+        c.remove_agent("../x")
+        self.assertEqual(SEEN[-1][:3], ("DELETE", "/agents/..%2Fx", "hub-user"))
+
+    def test_describe_agent_shows_kind_state_and_link(self):
+        line = describe_agent({"agent_id": "gpt1", "kind": "chatgpt", "enabled": 0, "online": False, "role": "R", "provider": "acc"})
+        for part in ("gpt1", "ChatGPT", "KAPALI", "çevrimdışı", "acc"):
+            self.assertIn(part, line)
+        self.assertIn("hazır", describe_agent({"agent_id": "claude1", "kind": "builtin", "enabled": 1, "online": True}))
 
 
 if __name__ == "__main__":

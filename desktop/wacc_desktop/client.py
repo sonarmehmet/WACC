@@ -76,6 +76,19 @@ class WaccClient:
     def agents(self):
         return self.hub.get("/agents")
 
+    # Agent accounts: the Hub only lets the user token add, remove or switch them
+    def register_agent(self, name: str, kind: str, role: str = "", provider: str = ""):
+        body = {"name": name, "kind": kind, "role": role}
+        if provider:
+            body["provider"] = provider
+        return self.hub.post("/agents", body)
+
+    def set_agent_enabled(self, name: str, enabled: bool):
+        return self.hub.post("/agents/" + urllib.parse.quote(name, safe="") + "/enabled", {"enabled": bool(enabled)})
+
+    def remove_agent(self, name: str):
+        return self.hub.request("DELETE", "/agents/" + urllib.parse.quote(name, safe=""))
+
     def tasks(self):
         return self.hub.get("/tasks")
 
@@ -136,6 +149,17 @@ class WaccClient:
 
     def audit(self, limit: int = 100):
         return self.backend.get(f"/exec/audit?limit={int(limit)}")
+
+
+KIND_LABELS = {"builtin": "hazır", "claude": "Claude", "gemini": "Gemini", "chatgpt": "ChatGPT", "other": "diğer"}
+
+
+def describe_agent(a: dict) -> str:
+    state = "açık" if a.get("enabled", 1) else "KAPALI"
+    online = "çevrimiçi" if a.get("online") else "çevrimdışı"
+    kind = KIND_LABELS.get(a.get("kind") or "builtin", str(a.get("kind")))
+    link = f"  → {a['provider']}" if a.get("provider") else ""
+    return f"{a.get('agent_id') or a.get('name')}  [{kind}, {state}, {online}]  {a.get('role') or ''}{link}"
 
 
 def describe_provider(p: dict) -> str:

@@ -9,11 +9,11 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from . import __version__
-from .auth import load_or_create_tokens, resolve_actor
+from .auth import load_or_create_tokens, new_token, resolve_actor, save_tokens
 from .render import render_all
 from .service import Hub, HubError
 
-STATUS_MAP = {
+STATUS_MAP = {"DUPLICATE": 409, "AGENT_DISABLED": 403, "NOT_REMOVABLE": 409, "BAD_NAME": 400, "BAD_KIND": 400, "BAD_PROVIDER": 400, 
     "UNKNOWN_AGENT": 404, "UNKNOWN_TASK": 404, "UNKNOWN_MESSAGE": 404,
     "FORBIDDEN": 403, "EMERGENCY_STOP": 423, "LOCKED": 409, "STALE_LOCK": 409,
     "BAD_STATE": 409, "DEPENDENCY_OPEN": 409,
@@ -101,19 +101,33 @@ class SessionEndIn(BaseModel):
     branch: Optional[str] = None
 
 
+class AgentIn(BaseModel):
+    name: str
+    kind: str = "other"
+    role: str = ""
+    provider: Optional[str] = None
+
+
+class EnabledIn(BaseModel):
+    enabled: bool
+
+
 class StopIn(BaseModel):
     reason: str = "manual stop"
 
 
-def create_app(hub: Optional[Hub] = None, tokens: Optional[dict] = None) -> FastAPI:
+def create_app(hub: Optional[Hub] = None, tokens: Optional[dict] = None, token_path=None) -> FastAPI:
     hub = hub or Hub()
-    tokens = tokens or load_or_create_tokens()
+    persist = token_path is not None or tokens is None  # tests pass an in-memory dict and skip the file
+    tokens = tokens or load_or_create_tokens(token_path)
     app = FastAPI(title="WACC Communication Hub", version=__version__)
 
     def actor(x_wacc_token: str = Header(default="")):
         who = resolve_actor(tokens, x_wacc_token)
         if not who:
             raise HTTPException(status_code=401, detail="Invalid or missing X-WACC-Token")
+        if not hub.agent_enabled(who):  # switched off or removed accounts stop working immediately
+            raise HTTPException(status_code=403, detail={"code": "AGENT_DISABLED", "message": f"{who} is switched off"})
         return who
 
     def run(fn, *args, **kwargs):
@@ -205,6 +219,28 @@ def create_app(hub: Optional[Hub] = None, tokens: Optional[dict] = None) -> Fast
     @app.get("/agents")
     def agents(me: str = Depends(actor)):
         return hub.overview()
+
+    # Agent accounts are the human's: only the user token adds, removes or switches them.
+    @app.post("/agents", status_code=201)
+    def agent_add(body: AgentIn, me: str = Depends(actor)):
+        row = run(hub.register_agent, me, body.name, body.kind, body.role, body.provider)
+        token = new_token()
+        tokens[row["agent_id"]] = token
+        if persist:
+            save_tokens(tokens, token_path)
+        return {"agent": row, "token": token}  # the only time the token is shown; it also lives in data/tokens.json
+
+    @app.post("/agents/{name}/enabled")
+    def agent_enabled(name: str, body: EnabledIn, me: str = Depends(actor)):
+        return run(hub.set_agent_enabled, me, name, body.enabled)
+
+    @app.delete("/agents/{name}")
+    def agent_remove(name: str, me: str = Depends(actor)):
+        out = run(hub.remove_agent, me, name)
+        tokens.pop(name, None)
+        if persist:
+            save_tokens(tokens, token_path)
+        return out
 
     @app.post("/heartbeat")
     def heartbeat(body: HeartbeatIn, me: str = Depends(actor)):

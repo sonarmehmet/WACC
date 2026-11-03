@@ -41,6 +41,16 @@ Adresler yalnızca senin bilgisayarından erişilebilir. Pencereleri kapatırsan
 - **Yapay zeka hesabı ekleme/çıkarma** (yeniden başlatmadan): masaüstü panelinde **Yapay Zeka** sekmesi. *Hesap ekle*: ad, tür (yerel/bulut), OpenAI uyumlu adres, model adı, API anahtarı (yerel için boş). *Aç/Kapat*, *Test et* ve *Sil* aynı sekmede. Değiştirmek için **onay token'ı** gerekir; API anahtarı kaydedilir ama bir daha gösterilmez. Herhangi bir OpenAI uyumlu servis olur (Ollama, LM Studio, OpenRouter, OpenAI ...).
 - **Model bağlama (dosyayla)**: `docs\LOCAL_LLM.md` (Ollama kurulumu). Denemek için `check_llm.bat`.
 
+## 5b. Ajanlar: istediğin kadar hesap ekle / çıkar
+
+Masaüstü uygulamasında **Ajanlar** sekmesi:
+
+- **Ajan ekle**: ad (küçük harf, rakam, `-`/`_`), tür (Claude, Gemini, ChatGPT, diğer), rol ve istersen bağlı bir yapay zekâ hesabı. Token **yalnızca bir kez** gösterilir; o ajana ver, kaydetmeyi unutma.
+- **Aç / Kapat**: ajan reddedilir, mesaj/görev almaz. Geri açınca token aynen çalışır.
+- **Sil**: token iptal olur, ajanın görevleri BACKLOG'a döner, kilitleri düşer; geçmiş kayıtlar durur. Yerleşik ajanlar (claude1-3, gemini) silinmez, yalnızca kapatılır.
+
+Sınır (dürüst not): ChatGPT / Gemini **web sohbetleri** senin 127.0.0.1 adresine erişemez; token verilse bile bağlanamazlar. Gerçek çalışan yol: **Yapay zekâ hesapları** sekmesinde API anahtarlı hesap ekleyip ajana bağlamak (worker `ai.complete` işi o hesabı kullanır) ya da çıktıyı elle kopyalamak. Token'ı bulut ajana vermek riskli; ver­meden önce düşün.
+
 ## 6. Acil durdurma ve devam
 - **Durdur:** `stop_wacc.bat` (ya da panelde ACİL DURDUR). Ajanlar yeni iş almaz, komut çalıştırma durur.
 - **Devam:** `resume_wacc.bat` (ya da panelde Devam ettir; onay token'ı ister). Durdurmayı yalnızca sen kaldırabilirsin.

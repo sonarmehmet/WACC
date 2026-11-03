@@ -34,6 +34,22 @@ def load_or_create_tokens(path=None) -> dict:
     return tokens
 
 
+def save_tokens(tokens: dict, path=None) -> None:
+    path = path or TOKEN_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(tokens, indent=2), encoding="utf-8")
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:
+        pass
+    tmp.replace(path)
+
+
+def new_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
 def resolve_actor(tokens: dict, presented: str):
     """Return the agent id owning `presented`, or None. Constant-time comparison."""
     if not presented:
