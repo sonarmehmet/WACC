@@ -350,7 +350,7 @@ void main() {
     });
 
     testWidgets('Test shows the result; Sil asks first and removes', (tester) async {
-      await pump(tester);
+      final app = await pump(tester);
       await useToken(tester, 'tok-human');
 
       await tester.tap(find.byKey(const Key('testbtn-mock')));
@@ -364,7 +364,7 @@ void main() {
         'enabled': true,
         'source': 'account',
       });
-      await tester.drag(find.byType(ListView).first, const Offset(0, 300));
+      await app.ai.refresh();
       await tester.pumpAndSettle();
       final remove = find.byKey(const Key('remove-extra'));
       await tester.ensureVisible(remove);
