@@ -61,6 +61,8 @@ class Agent {
     this.blockedTasks = 0,
     this.lastSentSubject,
     this.lastSentReceiver,
+    this.kind = 'builtin',
+    this.enabled = true,
   });
 
   factory Agent.fromJson(Map<String, dynamic> j) {
@@ -80,6 +82,8 @@ class Agent {
       blockedTasks: _int(j['blocked_tasks']),
       lastSentSubject: lastSent is Map ? _str(lastSent['subject']) : null,
       lastSentReceiver: lastSent is Map ? _str(lastSent['receiver']) : null,
+      kind: _str(j['kind']) ?? 'builtin',
+      enabled: j['enabled'] == null ? true : _bool(j['enabled']),
     );
   }
 
@@ -97,6 +101,29 @@ class Agent {
   final int blockedTasks;
   final String? lastSentSubject;
   final String? lastSentReceiver;
+
+  /// 'builtin' for the fixed team; claude/gemini/chatgpt/other for accounts the user added.
+  final String kind;
+  final bool enabled;
+
+  /// Only added accounts can be removed; built-in agents can only be switched off.
+  bool get removable => kind != 'builtin';
+}
+
+/// Answer to adding an agent: the new account's token is shown once and must not be kept.
+class NewAgent {
+  const NewAgent({required this.name, required this.token});
+
+  factory NewAgent.fromJson(Map<String, dynamic> j) {
+    final agent = j['agent'];
+    return NewAgent(
+      name: agent is Map ? (_str(agent['agent_id']) ?? '?') : '?',
+      token: _str(j['token']) ?? '',
+    );
+  }
+
+  final String name;
+  final String token;
 }
 
 class FeedMessage {

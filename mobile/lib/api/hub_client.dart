@@ -142,6 +142,30 @@ class HubClient extends _JsonClient {
   Future<List<Agent>> agents() async =>
       _list(await _send('GET', '/agents')).map(Agent.fromJson).toList();
 
+  /// User token only (the Hub enforces it). The returned token is shown once by the Hub.
+  Future<NewAgent> addAgent({
+    required String name,
+    required String kind,
+    String role = '',
+    String? provider,
+  }) async {
+    final body = <String, Object?>{
+      'name': name,
+      'kind': kind,
+      if (role.isNotEmpty) 'role': role,
+      if (provider != null && provider.isNotEmpty) 'provider': provider,
+    };
+    return NewAgent.fromJson(_map(await _send('POST', '/agents', body: body)));
+  }
+
+  Future<void> setAgentEnabled(String name, bool enabled) async {
+    await _send('POST', '/agents/${Uri.encodeComponent(name)}/enabled', body: {'enabled': enabled});
+  }
+
+  Future<void> removeAgent(String name) async {
+    await _send('DELETE', '/agents/${Uri.encodeComponent(name)}');
+  }
+
   Future<List<FeedMessage>> feed({int limit = 200, String? conversationId}) async {
     final query = <String, String>{'limit': '$limit'};
     if (conversationId != null && conversationId.isNotEmpty) {

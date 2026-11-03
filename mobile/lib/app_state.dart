@@ -8,6 +8,8 @@ import 'approvals_state.dart';
 import 'models.dart';
 import 'settings.dart';
 
+final RegExp agentNamePattern = RegExp(r'^[a-z][a-z0-9_-]{1,19}$');
+
 /// Holds everything the screens show and talks to the Hub. Screens only read from here and
 /// call the action methods; the action methods return an error text (or null on success)
 /// so the UI can show it.
@@ -174,6 +176,33 @@ class AppState extends ChangeNotifier {
 
   Future<String?> setTaskStatus(String taskId, String status, {String? commit, String? note}) =>
       _run((c) => c.setTaskStatus(taskId, status, commit: commit, note: note));
+
+  /// Adds an agent account. Returns (error, newAgent): the token in [NewAgent] is for the
+  /// caller to show once; it is not stored here.
+  Future<(String?, NewAgent?)> addAgent({
+    required String name,
+    required String kind,
+    String role = '',
+    String? provider,
+  }) async {
+    final id = name.trim().toLowerCase();
+    if (!agentNamePattern.hasMatch(id)) {
+      return ('Ad 2-20 karakter: a-z, 0-9, - veya _ (harfle başlar)', null);
+    }
+    final client = _client;
+    if (client == null) return ('Ayarlardan token gir', null);
+    try {
+      final created = await client.addAgent(name: id, kind: kind, role: role.trim(), provider: provider?.trim());
+      await refresh();
+      return (null, created);
+    } on HubException catch (e) {
+      return (e.message, null);
+    }
+  }
+
+  Future<String?> toggleAgent(Agent agent) => _run((c) => c.setAgentEnabled(agent.id, !agent.enabled));
+
+  Future<String?> removeAgent(Agent agent) => _run((c) => c.removeAgent(agent.id));
 
   Future<String?> stopAll() => _run((c) => c.emergencyStop('mobile app: manual stop'));
 
