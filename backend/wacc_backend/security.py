@@ -98,16 +98,24 @@ class AgentTokenBook:
         except OSError:
             return None
 
+    @staticmethod
+    def _content(path):
+        # content, not mtime: Windows timestamps are coarse and quick rewrites would be missed
+        try:
+            return path.read_bytes()
+        except OSError:
+            return None
+
     def _refresh(self) -> None:
         if self.fixed is not None:
             return
         s = self.settings
-        stamp = (self._mtime(s.data_dir / "agents.json"), self._mtime(s.agent_tokens_file))
+        stamp = (self._content(s.data_dir / "agents.json"), self._mtime(s.agent_tokens_file))
         if stamp == self._stamp:
             return
         self._tokens = get_or_create_agent_tokens(s)
         self._disabled = {a["name"] for a in registry_agents(s.data_dir) if not a["enabled"]}
-        self._stamp = (self._mtime(s.data_dir / "agents.json"), self._mtime(s.agent_tokens_file))
+        self._stamp = (self._content(s.data_dir / "agents.json"), self._mtime(s.agent_tokens_file))
 
     def who(self, presented: str) -> Optional[str]:
         self._refresh()
