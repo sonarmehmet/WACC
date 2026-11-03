@@ -30,6 +30,8 @@ Veri 5 saniyede bir yenilenir (sekme görünürken). Hub durursa üstteki rozet 
 | Backend | Salt okunur: iş kuyruğu (özet + son işler), ajan kaydı, projeler, AI sağlayıcıları ve günlük maliyet. Backend'in kendi tokenı gerekir (`data/backend_token.txt`); Hub tokenından farklıdır. |
 | Onaylar | Ajanların istediği riskli eylemleri (silme, kurulum, push…) görüntüler ve onaylar/reddeder; yürütmeyi durdurur/devam ettirir; son kararlar ve denetim kaydı. Ayrıntılar aşağıda. |
 
+| Yapay Zeka | Sağlayıcı hesapları: liste (açık/kapalı, kaynak, fiyat), günlük harcama/bütçe; yerel (loopback) veya bulut (https + anahtar) hesap ekle, aç/kapat, gerçek küçük istekle **Test**, sil. Yazma işlemleri kullanıcı tokenı ister (yalnızca bellekte, 5 dk boşta düşer). API anahtarı gönderilmeden önce formdan silinir, hiçbir yerde saklanmaz ve yanıtta geri gelmez. Ortam sağlayıcıları (`local-llm`, `cloud-llm`, `mock`) silinemez, yalnızca açılıp kapatılır. |
+
 ### Onaylar sekmesi
 
 - Bekleyen onay sayısı sekmede ve sayfa başlığında görünür (`Onaylar (2)`); Backend tokenı (veya onay tokenı) varsa her 5 saniyede güncellenir.
@@ -47,9 +49,10 @@ Veri 5 saniyede bir yenilenir (sekme görünürken). Hub durursa üstteki rozet 
 | Yön | Yollar |
 |---|---|
 | GET | `/health`, `/projects`, `/jobs`, `/jobs/summary`, `/agents`, `/ai/providers`, `/ai/usage`, `/exec/approvals`, `/exec/status`, `/exec/audit` |
-| POST | `/exec/approvals/{id}/approve`, `/exec/approvals/{id}/deny`, `/exec/stop`, `/exec/resume` |
+| POST | `/exec/approvals/{id}/approve`, `/exec/approvals/{id}/deny`, `/exec/stop`, `/exec/resume`, `/ai/accounts`, `/ai/providers/{ad}/enabled`, `/ai/providers/{ad}/test` |
+| DELETE | `/ai/accounts/{ad}` |
 
-Bunların dışındaki her şey (hafıza, AI çağrısı, iş/proje yazma, `POST /exec` ile eylem gönderme…) panelden geçmez: GET için `404 NOT_EXPOSED`, POST için `405`.
+Bunların dışındaki her şey (hafıza, AI çağrısı, bütçe, iş/proje yazma, `POST /exec` ile eylem gönderme…) panelden geçmez: GET için `404 NOT_EXPOSED`, POST için `405`.
 
 ## Güvenlik
 

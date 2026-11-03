@@ -7,6 +7,7 @@ drives both over HTTP the way the browser does. Needs the hub dependencies (fast
 """
 
 import http.client
+import http.server
 import json
 import os
 import shutil
@@ -50,6 +51,27 @@ def free_port():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+
+class _FakeLLMHandler(http.server.BaseHTTPRequestHandler):
+    """Tiny OpenAI-compatible endpoint (chat completions) on loopback."""
+    seen_auth = []
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        self.rfile.read(length)
+        type(self).seen_auth.append(self.headers.get("Authorization"))
+        body = json.dumps({"choices": [{"message": {"content": "OK"}}],
+                           "usage": {"prompt_tokens": 5, "completion_tokens": 1}}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
 
 
 @unittest.skipUnless(HAVE_HUB, "fastapi/uvicorn not installed")
@@ -256,6 +278,10 @@ class BackendProxyTests(unittest.TestCase):
         assert cls.backend_server.started, "backend did not start"
         cls.backend_url = "http://127.0.0.1:%d" % backend_port
 
+        cls.llm = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _FakeLLMHandler)
+        cls.llm_url = "http://127.0.0.1:%d/v1" % cls.llm.server_address[1]
+        threading.Thread(target=cls.llm.serve_forever, daemon=True).start()
+
         # seed through the real backend API
         cls.direct("POST", "/projects", {"name": "Panel Project", "description": "seed"})
         cls.direct("POST", "/jobs", {"kind": "demo", "title": "<b>seed job</b>"})
@@ -269,6 +295,8 @@ class BackendProxyTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.panel.shutdown()
         cls.panel.server_close()
+        cls.llm.shutdown()
+        cls.llm.server_close()
         cls.backend_server.should_exit = True
         cls.backend_thread.join(5)
         cls.tmp.cleanup()
@@ -303,6 +331,19 @@ class BackendProxyTests(unittest.TestCase):
         conn = http.client.HTTPConnection("127.0.0.1", port or self.port, timeout=10)
         try:
             conn.request("POST", path, body=json.dumps(body if body is not None else {}), headers=hdrs)
+            resp = conn.getresponse()
+            raw = resp.read()
+            return resp.status, json.loads(raw or b"null")
+        finally:
+            conn.close()
+
+    def delete(self, path, token=None, headers=None, port=None):
+        hdrs = dict(headers or {})
+        if token:
+            hdrs["X-WACC-Token"] = token
+        conn = http.client.HTTPConnection("127.0.0.1", port or self.port, timeout=10)
+        try:
+            conn.request("DELETE", path, headers=hdrs)
             resp = conn.getresponse()
             raw = resp.read()
             return resp.status, json.loads(raw or b"null")
@@ -360,17 +401,112 @@ class BackendProxyTests(unittest.TestCase):
             self.assertEqual(status, 404, path)
             self.assertEqual(body["detail"]["code"], "NOT_EXPOSED", path)
 
-    def test_only_approval_and_stop_writes_are_forwarded(self):
+    def test_only_the_listed_writes_are_forwarded(self):
         for path in ("/backend/jobs", "/backend/engine/pause", "/backend/projects", "/backend/exec",
                      "/backend/memory", "/backend/ai/complete", "/backend/ai/budget",
                      "/backend/exec/approvals", "/backend/exec/approvals/x/approve",
                      "/backend/exec/approvals/1/approve/extra", "/backend/exec/approvals/1",
-                     "/backend/exec/stopp", "/backend/../exec/stop"):
+                     "/backend/exec/stopp", "/backend/../exec/stop",
+                     # AI accounts: only the exact account/enable/test paths, lower-case names
+                     "/backend/ai/accounts/", "/backend/ai/accounts/ab", "/backend/ai/providers/mock",
+                     "/backend/ai/providers/Upper/enabled", "/backend/ai/providers/a/enabled",
+                     "/backend/ai/providers/ab/enabled/extra", "/backend/ai/providers/ab/budget",
+                     "/backend/ai/providers/../ai/budget/test", "/backend/ai/providers/a%2fb/test",
+                     "/backend/ai/accounts%2f..%2fbudget"):
             status, _ = self.post(path, token=self.USER_TOKEN, body={"kind": "x", "title": "y"})
             self.assertEqual(status, 405, path)
-        # nothing was created or paused
+        for path in ("/backend/ai/accounts", "/backend/ai/accounts/", "/backend/ai/accounts/Upper",
+                     "/backend/ai/accounts/a", "/backend/ai/accounts/ab/cd", "/backend/ai/providers/mock",
+                     "/backend/projects/1", "/backend/jobs/1", "/backend/exec/approvals/1",
+                     "/backend/memory/1", "/backend/ai/budget", "/backend/ai/accounts/../budget"):
+            status, _ = self.delete(path, token=self.USER_TOKEN)
+            self.assertEqual(status, 405, "DELETE " + path)
+        # nothing was created, deleted or paused
         self.assertEqual([p["name"] for p in self.get("/backend/projects")[1]], ["Panel Project"])
         self.assertFalse(self.get("/backend/jobs/summary")[1]["paused"])
+        self.assertIn("mock", [p["name"] for p in self.get("/backend/ai/providers")[1]])
+
+    def test_ai_account_lifecycle_and_the_key_never_comes_back(self):
+        secret = "sk-test-secret-key-12345"
+        acct = {"name": "acct-one", "kind": "local", "base_url": self.llm_url, "model": "fake-model",
+                "api_key": secret, "price_in_per_1k": 0.001, "price_out_per_1k": 0.002}
+        # an agent token cannot add, switch, test or remove accounts (the Backend decides)
+        self.assertEqual(self.post("/backend/ai/accounts", token=self.TOKEN, body=acct)[0], 403)
+        self.assertEqual(self.post("/backend/ai/accounts", body=acct)[0], 401)
+
+        status, created = self.post("/backend/ai/accounts", token=self.USER_TOKEN, body=acct)
+        self.assertEqual(status, 201, created)
+        self.assertNotIn("api_key", created)
+        self.assertTrue(created["has_key"])
+        self.assertNotIn(secret, json.dumps(created))
+
+        status, providers = self.get("/backend/ai/providers")
+        self.assertEqual(status, 200)
+        self.assertNotIn(secret, json.dumps(providers))
+        row = next(p for p in providers if p["name"] == "acct-one")
+        self.assertEqual((row["source"], row["enabled"], row["kind"], row["model"]),
+                         ("account", True, "local", "fake-model"))
+        self.assertEqual(next(p for p in providers if p["name"] == "mock")["source"], "env")
+
+        # switch off / on
+        path = "/backend/ai/providers/acct-one/enabled"
+        self.assertEqual(self.post(path, token=self.TOKEN, body={"enabled": False})[0], 403)
+        self.assertEqual(self.post(path, token=self.USER_TOKEN, body={"enabled": False})[1],
+                         {"name": "acct-one", "enabled": False})
+        row = next(p for p in self.get("/backend/ai/providers")[1] if p["name"] == "acct-one")
+        self.assertFalse(row["enabled"])
+
+        # test works while switched off and sends the stored key to the endpoint, not to us
+        _FakeLLMHandler.seen_auth.clear()
+        self.assertEqual(self.post("/backend/ai/providers/acct-one/test", token=self.TOKEN)[0], 403)
+        status, result = self.post("/backend/ai/providers/acct-one/test", token=self.USER_TOKEN)
+        self.assertEqual(status, 200, result)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["reply"], "OK")
+        self.assertNotIn(secret, json.dumps(result))
+        self.assertEqual(_FakeLLMHandler.seen_auth, ["Bearer " + secret])
+        self.assertEqual(self.post(path, token=self.USER_TOKEN, body={"enabled": True})[0], 200)
+
+        # remove
+        self.assertEqual(self.delete("/backend/ai/accounts/acct-one", token=self.TOKEN)[0], 403)
+        self.assertEqual(self.delete("/backend/ai/accounts/acct-one", token=self.USER_TOKEN),
+                         (200, {"removed": True}))
+        self.assertNotIn("acct-one", [p["name"] for p in self.get("/backend/ai/providers")[1]])
+        self.assertEqual(self.delete("/backend/ai/accounts/acct-one", token=self.USER_TOKEN),
+                         (200, {"removed": False}))
+
+    def test_ai_account_validation_errors_are_passed_through_without_the_key(self):
+        secret = "sk-another-secret-99999"
+        status, body = self.post("/backend/ai/accounts", token=self.USER_TOKEN, body={
+            "name": "bad-cloud", "kind": "cloud", "base_url": "http://insecure.example/v1",
+            "model": "m", "api_key": secret})
+        self.assertEqual(status, 400, body)  # cloud needs https
+        self.assertNotIn(secret, json.dumps(body))
+        status, body = self.post("/backend/ai/accounts", token=self.USER_TOKEN, body={
+            "name": "Bad Name", "kind": "local", "base_url": self.llm_url, "model": "m"})
+        self.assertEqual(status, 400, body)
+        self.assertNotIn("bad-cloud", [p["name"] for p in self.get("/backend/ai/providers")[1]])
+
+    def test_environment_providers_cannot_be_removed_but_can_be_switched(self):
+        status, body = self.delete("/backend/ai/accounts/mock", token=self.USER_TOKEN)
+        self.assertGreaterEqual(status, 400, body)
+        self.assertIn("mock", [p["name"] for p in self.get("/backend/ai/providers")[1]])
+        path = "/backend/ai/providers/mock/enabled"
+        self.assertEqual(self.post(path, token=self.USER_TOKEN, body={"enabled": False})[0], 200)
+        self.assertEqual(self.post(path, token=self.USER_TOKEN, body={"enabled": True})[0], 200)
+
+    def test_cross_origin_and_foreign_host_ai_changes_are_refused(self):
+        acct = {"name": "csrf-acct", "kind": "local", "base_url": self.llm_url, "model": "m"}
+        for headers in ({"Origin": "http://evil.example"}, {"Host": "evil.example"}):
+            self.assertEqual(self.post("/backend/ai/accounts", token=self.USER_TOKEN, body=acct,
+                                       headers=headers)[0], 403)
+            self.assertEqual(self.post("/backend/ai/providers/mock/enabled", token=self.USER_TOKEN,
+                                       body={"enabled": False}, headers=headers)[0], 403)
+            self.assertEqual(self.delete("/backend/ai/accounts/csrf-acct", token=self.USER_TOKEN,
+                                         headers=headers)[0], 403)
+        names = [p["name"] for p in self.get("/backend/ai/providers")[1]]
+        self.assertNotIn("csrf-acct", names)
+        self.assertTrue(next(p for p in self.get("/backend/ai/providers")[1] if p["name"] == "mock")["enabled"])
 
     def test_pending_approval_is_listed_with_the_raw_action(self):
         aid = self.request_approval("list-me.txt")
@@ -498,6 +634,25 @@ class FrontendSourceTests(unittest.TestCase):
                     self.assertNotIn(sink, line, "app.js:%d" % number)
         # the secret is also removed from the input as soon as it is taken
         self.assertIn('$("approvalToken").value = "";', source)
+
+    def test_ai_api_key_is_never_kept(self):
+        source = (WEB / "public" / "app.js").read_text(encoding="utf-8")
+        for number, line in enumerate(source.splitlines(), 1):
+            if "apiKey" in line or '"aiKey"' in line or "api_key" in line:
+                for sink in ("saveToken", "setItem", "localStorage", "sessionStorage", "document.cookie",
+                             "indexedDB", "console."):
+                    self.assertNotIn(sink, line, "app.js:%d" % number)
+        self.assertNotIn("state.apiKey", source)
+        self.assertNotIn("apiKey:", source)  # never a property of long-lived state
+        # the field is emptied before the request leaves, not after it
+        self.assertLess(source.index('$("aiKey").value = ""; // the secret leaves'),
+                        source.index('await aiChange("/ai/accounts"'))
+        self.assertIn("$(\"aiKey\").value = \"\";", source)  # also cleared by "Unut"
+
+    def test_ai_forms_do_not_invite_password_managers(self):
+        html = (WEB / "public" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="aiToken" type="password" autocomplete="new-password"', html)
+        self.assertIn('id="aiKey" type="password" autocomplete="new-password"', html)
 
     def test_approval_form_does_not_invite_password_managers(self):
         html = (WEB / "public" / "index.html").read_text(encoding="utf-8")

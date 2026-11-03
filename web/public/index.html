@@ -31,6 +31,7 @@
     <button type="button" data-tab="locks">Kilitler</button>
     <button type="button" data-tab="backend">Backend</button>
     <button type="button" id="approvalsTab" data-tab="approvals">Onaylar</button>
+    <button type="button" data-tab="ai">Yapay Zeka</button>
   </nav>
 
   <main>
@@ -118,6 +119,49 @@
         </div>
       </form>
       <div id="approvals"></div>
+    </section>
+
+    <section id="tab-ai" class="tab hidden">
+      <form id="aiTokenForm" class="card form" autocomplete="off">
+        <h2>Yapay zeka hesapları <span id="aiConn" class="badge">Bağlanıyor…</span></h2>
+        <p class="hint">Sağlayıcıları herkes görür. Hesap ekleme, silme, açıp kapatma ve test yalnızca
+          <b>kullanıcı tokenı</b> ile yapılır (Onaylar sekmesindeki aynı token: yalnızca bellekte tutulur,
+          5 dakika işlem yapmazsan veya sayfayı yenilersen unutulur). API anahtarı hiçbir yerde saklanmaz,
+          gönderilince formdan silinir ve geri gösterilmez.</p>
+        <label>Kullanıcı tokenı
+          <input id="aiToken" type="password" autocomplete="new-password" autocapitalize="off"
+                 spellcheck="false" placeholder="backend penceresinde gösterilen kullanıcı tokenı">
+        </label>
+        <div class="actions">
+          <button type="submit">Kullan</button>
+          <button id="forgetAiToken" type="button" class="ghost">Sil</button>
+          <span id="aiTokenState" class="badge warn">Onay token'ı yok: yalnızca görüntüleme</span>
+        </div>
+      </form>
+      <div id="ai"></div>
+      <form id="aiAddForm" class="card form" autocomplete="off">
+        <h2>Hesap ekle</h2>
+        <p class="hint">Herhangi bir OpenAI uyumlu uç nokta olur (Ollama, LM Studio, OpenRouter, OpenAI…).
+          <b>local</b>: yalnızca bu bilgisayarın adresi (127.0.0.1 / localhost), anahtar isteğe bağlı.
+          <b>cloud</b>: yalnızca https ve anahtar zorunlu; kullanımı günlük bütçeye sayılır.</p>
+        <div class="row">
+          <label>Ad <input id="aiName" type="text" required minlength="2" maxlength="31"
+                           pattern="[a-z0-9][a-z0-9_\-]{1,30}" placeholder="ornek-model" autocapitalize="off"></label>
+          <label>Tür <select id="aiKind"><option value="local">local</option><option value="cloud">cloud</option></select></label>
+        </div>
+        <label>Adres (base URL) <input id="aiUrl" type="url" required placeholder="http://127.0.0.1:11434/v1"></label>
+        <label>Model <input id="aiModel" type="text" required placeholder="llama3.1"></label>
+        <label>API anahtarı
+          <input id="aiKey" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false"
+                 placeholder="cloud için zorunlu, local için boş bırakılabilir">
+        </label>
+        <div class="row">
+          <label>1K giriş fiyatı ($, isteğe bağlı) <input id="aiPriceIn" type="number" min="0" step="any"></label>
+          <label>1K çıkış fiyatı ($, isteğe bağlı) <input id="aiPriceOut" type="number" min="0" step="any"></label>
+        </div>
+        <label class="check"><input id="aiEnabled" type="checkbox" checked> Eklenince etkin olsun</label>
+        <div><button id="aiAddBtn" type="submit" disabled>Ekle</button></div>
+      </form>
     </section>
   </main>
 
