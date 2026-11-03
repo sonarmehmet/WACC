@@ -221,6 +221,32 @@ class HubClient extends _JsonClient {
   Future<void> resume() async {
     await _send('POST', '/system/resume');
   }
+
+  /// User token only. Returns the new agent's token: it is shown once and never comes back.
+  Future<String> registerAgent({
+    required String name,
+    required String kind,
+    String role = '',
+    String? provider,
+  }) async {
+    final out = _map(await _send('POST', '/agents', body: {
+      'name': name,
+      'kind': kind,
+      'role': role,
+      if (provider != null && provider.isNotEmpty) 'provider': provider,
+    }));
+    return '${out['token'] ?? ''}';
+  }
+
+  /// User token only.
+  Future<void> setAgentEnabled(String name, bool enabled) async {
+    await _send('POST', '/agents/${Uri.encodeComponent(name)}/enabled', body: {'enabled': enabled});
+  }
+
+  /// User token only. Built-in agents are refused by the Hub.
+  Future<void> removeAgent(String name) async {
+    await _send('DELETE', '/agents/${Uri.encodeComponent(name)}');
+  }
 }
 
 typedef HubClientFactory = HubClient Function(String baseUrl, String token);

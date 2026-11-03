@@ -179,6 +179,24 @@ class AppState extends ChangeNotifier {
 
   Future<String?> resumeAll() => _run((c) => c.resume());
 
+  /// Returns (error, token). The token of a new agent is shown once and is not kept here.
+  Future<(String?, String?)> addAgent(String name, String kind, String role, String provider) async {
+    final client = _client;
+    if (client == null) return ('Ayarlardan token gir', null);
+    try {
+      final token = await client.registerAgent(name: name, kind: kind, role: role, provider: provider);
+      await refresh();
+      return (null, token);
+    } on HubException catch (e) {
+      return (e.message, null);
+    }
+  }
+
+  Future<String?> setAgentEnabled(String name, bool enabled) =>
+      _run((c) => c.setAgentEnabled(name, enabled));
+
+  Future<String?> removeAgent(String name) => _run((c) => c.removeAgent(name));
+
   Future<String?> _run(Future<void> Function(HubClient client) action) async {
     final client = _client;
     if (client == null) return 'Ayarlardan token gir';
