@@ -40,6 +40,7 @@ class AgentsScreen extends StatelessWidget {
 
   Future<void> _toggle(BuildContext context, Agent agent) async {
     final err = await state.toggleAgent(agent);
+    if (!context.mounted) return;
     _snack(context, err ?? '${agent.id} ${agent.enabled ? 'kapatıldı' : 'açıldı'}');
   }
 
@@ -57,6 +58,7 @@ class AgentsScreen extends StatelessWidget {
     );
     if (ok != true) return;
     final err = await state.removeAgent(agent);
+    if (!context.mounted) return;
     _snack(context, err ?? '${agent.id} silindi');
   }
 
