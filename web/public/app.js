@@ -42,6 +42,7 @@ const state = {
   approvalAgain: false,
   approvalGen: 0,
   pendingCount: 0,
+  seenPending: null, // ids already known; null until the first successful poll
   aiBusy: false,
   aiAgain: false,
   aiGen: 0,
@@ -666,6 +667,44 @@ function updatePendingBadge() {
   document.title = (n ? "(" + n + ") " : "") + "WACC Panel";
 }
 
+/* ------------------------------------------------------- browser notification */
+// Only when the user switched it on (the browser's own permission prompt is triggered by a click
+// on the button, never automatically). The text is fixed: nothing the agents wrote is put into a
+// notification.
+function notifySupported() { return typeof window.Notification === "function"; }
+
+function renderNotify() {
+  const row = $("notifyRow");
+  if (!notifySupported()) { row.classList.add("hidden"); return; }
+  row.classList.remove("hidden");
+  const perm = window.Notification.permission;
+  $("notifyBtn").disabled = perm !== "default";
+  $("notifyState").textContent = perm === "granted"
+    ? "Bildirimler açık (sekme arka plandayken gösterilir)"
+    : (perm === "denied" ? "Tarayıcı bildirimi engellemiş" : "");
+}
+
+async function enableNotifications() {
+  if (!notifySupported()) return;
+  try { await window.Notification.requestPermission(); } catch (e) { /* user dismissed */ }
+  renderNotify();
+}
+
+function notifyNewApprovals(pending) {
+  const ids = new Set(pending.map((a) => a.id));
+  const before = state.seenPending;
+  state.seenPending = ids;
+  if (!before || !notifySupported() || window.Notification.permission !== "granted") return;
+  const fresh = [...ids].filter((id) => !before.has(id)).length;
+  if (!fresh || !document.hidden) return;
+  try {
+    new window.Notification("WACC: onay bekliyor", {
+      body: fresh + " yeni onay isteği var. Panele dönüp incele.",
+      tag: "wacc-approvals",
+    });
+  } catch (e) { /* some browsers only allow notifications from a service worker */ }
+}
+
 function actionSummary(action) {
   let text;
   try { text = JSON.stringify(action); } catch (e) { text = String(action); }
@@ -794,6 +833,7 @@ async function refreshApprovals() {
     if (!token) {
       state.data.approvals = null;
       state.pendingCount = 0;
+      state.seenPending = null;
       updatePendingBadge();
       setApprovalConn("warn", "Token gerekli");
       renderApprovals();
@@ -805,6 +845,7 @@ async function refreshApprovals() {
       if (gen !== state.approvalGen) return;
       state.pendingCount = pending.length;
       updatePendingBadge();
+      notifyNewApprovals(pending);
       if (full) {
         const [status, history, audit] = await Promise.all([
           approvalCall(token, "/exec/status"),
@@ -1169,6 +1210,8 @@ function init() {
   });
   $("aiAddForm").addEventListener("submit", aiAdd);
   $("agentForm").addEventListener("submit", agentAdd);
+  $("notifyBtn").addEventListener("click", enableNotifications);
+  renderNotify();
   // Top-right "Unut" clears every token held by this panel.
   $("forgetToken").addEventListener("click", () => {
     state.token = "";
@@ -1249,7 +1292,11 @@ function init() {
   refresh();
   refreshApprovals();
   setInterval(() => {
-    if (document.hidden) return;
+    if (document.hidden) {
+      // Hidden tab: only the cheap pending-approval check, and only when notifications are on.
+      if (notifySupported() && window.Notification.permission === "granted") refreshApprovals();
+      return;
+    }
     refresh();
     if (state.tab === "backend") refreshBackend(); // backend data is only polled while it is visible
     refreshApprovals(); // cheap pending count always; the full view only on the Onaylar tab

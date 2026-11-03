@@ -54,6 +54,11 @@ Veri 5 saniyede bir yenilenir (sekme görünürken). Hub durursa üstteki rozet 
 
 Bunların dışındaki her şey (hafıza, AI çağrısı, bütçe, iş/proje yazma, `POST /exec` ile eylem gönderme…) panelden geçmez: GET için `404 NOT_EXPOSED`, POST için `405`.
 
+### Bildirim ve görsel kimlik
+
+- Onaylar sekmesindeki **Yeni onayda bildirim göster** düğmesi tarayıcı iznini yalnızca tıklayınca ister. İzin verilirse, sekme arka plandayken yeni bir onay isteği geldiğinde sabit metinli bir bildirim gösterilir (ajanların yazdığı hiçbir metin bildirime konmaz); arka plandayken yalnızca bekleyen onay sayısı yoklanır.
+- `favicon-32.png` ve `icon-192.png` `assets/` içindeki dosyaların kopyalarıdır (serve.py yalnızca `web/public/` sunar); renkler `assets/palette.md` ile aynı CSS değişkenleridir.
+
 ## Güvenlik
 
 - Sunucu yalnızca `127.0.0.1` üzerinde dinler; yabancı `Host` başlığı (DNS rebinding) ve farklı `Origin` ile gelen POST istekleri (CSRF) reddedilir; onay kararı da buna dahildir.

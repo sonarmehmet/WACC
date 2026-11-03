@@ -617,7 +617,7 @@ class FrontendSourceTests(unittest.TestCase):
 
     def test_no_secrets_in_frontend(self):
         for f in (WEB / "public").iterdir():
-            self.assertNotIn("tokens.json", f.read_text(encoding="utf-8"), f.name)
+            self.assertNotIn(b"tokens.json", f.read_bytes(), f.name)  # images included
 
     def test_remember_token_is_off_by_default(self):
         import re
@@ -660,6 +660,24 @@ class FrontendSourceTests(unittest.TestCase):
         html = (WEB / "public" / "index.html").read_text(encoding="utf-8")
         self.assertIn('id="aiToken" type="password" autocomplete="new-password"', html)
         self.assertIn('id="aiKey" type="password" autocomplete="new-password"', html)
+
+    def test_branding_files_are_linked_and_served(self):
+        html = (WEB / "public" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png"', html)
+        self.assertIn('src="/icon-192.png"', html)
+        for name in ("favicon-32.png", "icon-192.png"):  # copies of assets/: keep them in step
+            self.assertEqual((WEB / "public" / name).read_bytes(), (WEB.parent / "assets" / name).read_bytes())
+
+    def test_notification_is_opt_in_and_carries_no_agent_text(self):
+        source = (WEB / "public" / "app.js").read_text(encoding="utf-8")
+        # the permission prompt only comes from a click, never at load
+        self.assertEqual(source.count("requestPermission"), 1)
+        self.assertIn('$("notifyBtn").addEventListener("click", enableNotifications)', source)
+        start = source.index("function notifyNewApprovals")
+        body = source[start:source.index("\n}\n", start)]
+        self.assertIn("new window.Notification(", body)
+        for untrusted in ("action", "requested_by", "risk_summary", ".summary"):
+            self.assertNotIn(untrusted, body)
 
     def test_approval_form_does_not_invite_password_managers(self):
         html = (WEB / "public" / "index.html").read_text(encoding="utf-8")

@@ -51,6 +51,7 @@ h3 { margin: 0; font-size: 15px; }
   border-bottom: 1px solid var(--line);
 }
 .spacer { flex: 1; }
+.logo { width: 28px; height: 28px; border-radius: 6px; }
 .inline { display: flex; align-items: center; gap: 6px; }
 
 .tabs {
