@@ -38,7 +38,8 @@ Adresler yalnızca senin bilgisayarından erişilebilir. Pencereleri kapatırsan
 - **Web panel** (http://127.0.0.1:8780): üstteki **Token** alanına Hub token'ını (`data\tokens.json` içindeki `user` değeri) yaz. "Hatırla" kutusunu işaretlemezsen sekme kapanınca silinir. Ajanları, görevleri, mesajları görürsün.
 - **Masaüstü paneli**: `run_desktop.bat`. Üç alana token'ları yaz, **Bağlan**'a bas. Token'lar diske yazılmaz, program kapanınca silinir.
 - **Onay verme**: Bir ajan riskli bir işi (paket kurma, dosya silme, test/derleme çalıştırma gibi) yapmak istediğinde "Onaylar" sekmesinde görünür. **Tam komutu oku**, doğruysa Onayla'yı, şüphen varsa Reddet'i seç. Onay yalnızca o tek eylem içindir ve 10 dakika sonra düşer. Onay vermek için backend penceresinde yazan **onay token'ı** gerekir.
-- **Model bağlama**: `docs\LOCAL_LLM.md` (Ollama kurulumu). Denemek için `check_llm.bat`.
+- **Yapay zeka hesabı ekleme/çıkarma** (yeniden başlatmadan): masaüstü panelinde **Yapay Zeka** sekmesi. *Hesap ekle*: ad, tür (yerel/bulut), OpenAI uyumlu adres, model adı, API anahtarı (yerel için boş). *Aç/Kapat*, *Test et* ve *Sil* aynı sekmede. Değiştirmek için **onay token'ı** gerekir; API anahtarı kaydedilir ama bir daha gösterilmez. Herhangi bir OpenAI uyumlu servis olur (Ollama, LM Studio, OpenRouter, OpenAI ...).
+- **Model bağlama (dosyayla)**: `docs\LOCAL_LLM.md` (Ollama kurulumu). Denemek için `check_llm.bat`.
 
 ## 6. Acil durdurma ve devam
 - **Durdur:** `stop_wacc.bat` (ya da panelde ACİL DURDUR). Ajanlar yeni iş almaz, komut çalıştırma durur.

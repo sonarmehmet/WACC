@@ -162,6 +162,8 @@ class Orchestrator:
     def __init__(self, storage: Storage, providers: Optional[List[Provider]] = None):
         self.storage = storage
         self.providers: Dict[str, Provider] = {}
+        self.disabled: set = set()
+        self.account_names: set = set()  # added at runtime by the user (removable); the rest come from env/tests
         for p in providers or []:
             self.add_provider(p)
 
@@ -169,6 +171,45 @@ class Orchestrator:
         if provider.kind not in (LOCAL, CLOUD):
             raise ValueError("Provider kind must be 'local' or 'cloud'")
         self.providers[provider.name] = provider
+
+    def add_account(self, provider: Provider, enabled: bool = True) -> None:
+        if provider.name in self.providers:
+            raise OrchestratorError("DUPLICATE", f"A provider named {provider.name!r} already exists")
+        self.add_provider(provider)
+        self.account_names.add(provider.name)
+        if not enabled:
+            self.disabled.add(provider.name)
+
+    def remove_account(self, name: str) -> bool:
+        if name in self.providers and name not in self.account_names:
+            raise OrchestratorError("NOT_REMOVABLE", f"{name!r} comes from the environment; change data/llm.env instead")
+        self.disabled.discard(name)
+        self.account_names.discard(name)
+        return self.providers.pop(name, None) is not None
+
+    def set_enabled(self, name: str, enabled: bool) -> None:
+        if name not in self.providers:
+            raise OrchestratorError("NOT_FOUND", f"Unknown provider {name!r}")
+        (self.disabled.discard if enabled else self.disabled.add)(name)
+
+    def test_provider(self, name: str) -> dict:
+        """One tiny real request (works even when the account is switched off). Counts toward the usage ledger."""
+        import time as _time
+        p = self.providers.get(name)
+        if p is None:
+            raise OrchestratorError("NOT_FOUND", f"Unknown provider {name!r}")
+        if p.kind == CLOUD and self.spent_today() + p.cost(20, 16) > self.get_budget():
+            raise OrchestratorError("BUDGET_EXCEEDED", "Daily AI budget would be exceeded")
+        started = _time.monotonic()
+        try:
+            out = p.complete("Reply with the single word OK.", None, 16)
+        except ProviderError as exc:
+            self._record(p, 0, 0, 0.0, False, str(exc))
+            return {"ok": False, "provider": name, "error": scrub(str(exc)),
+                    "latency_ms": int((_time.monotonic() - started) * 1000)}
+        self._record(p, out.tokens_in, out.tokens_out, p.cost(out.tokens_in, out.tokens_out), True)
+        return {"ok": True, "provider": name, "model": out.model, "reply": scrub(out.text)[:60],
+                "latency_ms": int((_time.monotonic() - started) * 1000)}
 
     # ----------------------------------------------------------------- budget
     @staticmethod
@@ -222,18 +263,23 @@ class Orchestrator:
     # ---------------------------------------------------------------- routing
     def list_providers(self) -> List[dict]:
         return [{"name": p.name, "kind": p.kind, "model": p.model,
-                 "price_in_per_1k": p.price_in_per_1k, "price_out_per_1k": p.price_out_per_1k}
+                 "price_in_per_1k": p.price_in_per_1k, "price_out_per_1k": p.price_out_per_1k,
+                 "enabled": p.name not in self.disabled,
+                 "source": "account" if p.name in self.account_names else "env"}
                 for p in self.providers.values()]
 
     def _order(self, prefer: str, only: Optional[str]) -> List[Provider]:
         if only:
             if only not in self.providers:
                 raise OrchestratorError("NOT_FOUND", f"Unknown provider {only!r}")
+            if only in self.disabled:
+                raise OrchestratorError("DISABLED", f"Provider {only!r} is switched off")
             return [self.providers[only]]
         if prefer not in ("local", "cloud", "auto"):
             raise OrchestratorError("BAD_PREFERENCE", "prefer must be local, cloud or auto")
-        locals_ = [p for p in self.providers.values() if p.kind == LOCAL]
-        clouds = [p for p in self.providers.values() if p.kind == CLOUD]
+        active = [p for p in self.providers.values() if p.name not in self.disabled]
+        locals_ = [p for p in active if p.kind == LOCAL]
+        clouds = [p for p in active if p.kind == CLOUD]
         return clouds + locals_ if prefer == "cloud" else locals_ + clouds
 
     def complete(self, prompt: str, system: Optional[str] = None, prefer: str = "auto",

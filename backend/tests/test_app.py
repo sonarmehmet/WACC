@@ -82,8 +82,8 @@ class AppTests(unittest.TestCase):
         self.assertEqual(self.client.post("/ai/complete", headers=h, json={"prompt": " "}).status_code, 400)
         self.assertEqual(self.client.get("/ai/providers", headers=h).json()[0]["name"], "mock")
         self.assertEqual(self.client.get("/ai/usage", headers=h).json()["providers"][0]["calls"], 1)
-        self.assertEqual(self.client.post("/ai/budget", headers=h, json={"usd": 2}).json()["budget_usd"], 2)
-        self.assertEqual(self.client.post("/ai/budget", headers=h, json={"usd": -1}).status_code, 400)
+        self.assertEqual(self.client.post("/ai/budget", headers=self.u, json={"usd": 2}).json()["budget_usd"], 2)
+        self.assertEqual(self.client.post("/ai/budget", headers=self.u, json={"usd": -1}).status_code, 400)
         m = self.client.post("/memory", headers=h, json={"content": "hub uses sqlite", "tags": ["hub"]})
         self.assertEqual(m.status_code, 201)
         mid = m.json()["id"]
@@ -155,6 +155,53 @@ class AppTests(unittest.TestCase):
     def test_per_agent_tokens_are_read_valid_everywhere(self):
         self.assertEqual(self.client.get("/projects", headers=self.c2).status_code, 200)
         self.assertEqual(self.client.get("/projects", headers={"X-WACC-Token": "tok-c2 "}).status_code, 401)
+
+
+    def test_ai_accounts_are_user_only_and_keys_never_come_back(self):
+        spec = {"name": "my-ollama", "kind": "local", "base_url": "http://127.0.0.1:11434/v1", "model": "llama3"}
+        self.assertEqual(self.client.post("/ai/accounts", headers=self.c2, json=spec).status_code, 403)
+        self.assertEqual(self.client.post("/ai/accounts", headers=self.h, json=spec).status_code, 403)
+        self.assertEqual(self.client.post("/ai/accounts", json=spec).status_code, 401)
+        r = self.client.post("/ai/accounts", headers=self.u, json=spec)
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(self.client.post("/ai/accounts", headers=self.u, json=spec).status_code, 409)
+        cloud = {"name": "cloudy", "kind": "cloud", "base_url": "https://api.example.com/v1", "model": "m", "api_key": "sk-topsecret99"}
+        added = self.client.post("/ai/accounts", headers=self.u, json=cloud)
+        self.assertEqual(added.status_code, 201)
+        self.assertNotIn("sk-topsecret99", added.text)
+        listing = self.client.get("/ai/providers", headers=self.c2)
+        self.assertNotIn("sk-topsecret99", listing.text)
+        names = {p["name"]: p for p in listing.json()}
+        self.assertEqual(names["cloudy"]["source"], "account")
+        self.assertTrue(names["cloudy"]["enabled"])
+        self.assertEqual(self.client.post("/ai/accounts", headers=self.u, json={**spec, "name": "bad", "base_url": "http://example.com/v1"}).status_code, 400)
+
+    def test_ai_account_switch_test_remove_and_env_provider_protection(self):
+        spec = {"name": "my-ollama", "kind": "local", "base_url": "http://127.0.0.1:1/v1", "model": "llama3"}
+        self.client.post("/ai/accounts", headers=self.u, json=spec)
+        self.assertEqual(self.client.post("/ai/providers/my-ollama/enabled", headers=self.c2, json={"enabled": False}).status_code, 403)
+        self.assertEqual(self.client.post("/ai/providers/my-ollama/enabled", headers=self.u, json={"enabled": False}).status_code, 200)
+        self.assertEqual(self.client.post("/ai/complete", headers=self.c2, json={"prompt": "hi", "provider": "my-ollama"}).status_code, 409)
+        test = self.client.post("/ai/providers/my-ollama/test", headers=self.u)  # nothing listens on port 1
+        self.assertEqual(test.status_code, 200)
+        self.assertFalse(test.json()["ok"])
+        self.assertEqual(self.client.post("/ai/providers/my-ollama/test", headers=self.c2).status_code, 403)
+        self.assertEqual(self.client.delete("/ai/accounts/mock", headers=self.u).status_code, 409)  # env/test provider
+        self.assertEqual(self.client.delete("/ai/accounts/my-ollama", headers=self.c2).status_code, 403)
+        self.assertEqual(self.client.delete("/ai/accounts/my-ollama", headers=self.u).json(), {"removed": True})
+        self.assertNotIn("my-ollama", [p["name"] for p in self.client.get("/ai/providers", headers=self.c2).json()])
+
+    def test_accounts_survive_a_restart_and_budget_is_user_only(self):
+        from wacc_backend.app import create_app
+        spec = {"name": "keeper", "kind": "local", "base_url": "http://127.0.0.1:11434/v1", "model": "llama3"}
+        self.client.post("/ai/accounts", headers=self.u, json=spec)
+        self.client.post("/ai/providers/keeper/enabled", headers=self.u, json={"enabled": False})
+        s = load_settings({"WACC_DATA_DIR": self.tmp.name})
+        again = TestClient(create_app(s, token="secret", providers=[], user_token="human", agent_tokens={"claude2": "tok-c2"}))
+        row = [p for p in again.get("/ai/providers", headers=self.c2).json() if p["name"] == "keeper"][0]
+        self.assertFalse(row["enabled"])
+        self.assertEqual(self.client.post("/ai/budget", headers=self.c2, json={"usd": 500}).status_code, 403)
+        self.assertEqual(self.client.post("/ai/budget", headers=self.u, json={"usd": 2}).json()["budget_usd"], 2)
 
 
 if __name__ == "__main__":
