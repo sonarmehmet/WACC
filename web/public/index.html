@@ -4,10 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>WACC Panel</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <header class="top">
+    <img class="logo" src="/icon-192.png" alt="" width="28" height="28">
     <h1>WACC</h1>
     <span id="conn" class="badge">Bağlanıyor…</span>
     <span id="stopBadge" class="badge bad hidden">ACİL DURDURMA AÇIK</span>
@@ -116,6 +118,10 @@
           <button type="submit">Kullan</button>
           <button id="forgetApprovalToken" type="button" class="ghost">Sil</button>
           <span id="approvalTokenState" class="badge warn">Onay token'ı yok: yalnızca görüntüleme</span>
+        </div>
+        <div class="actions hidden" id="notifyRow">
+          <button id="notifyBtn" type="button" class="ghost">Yeni onayda bildirim göster</button>
+          <span id="notifyState" class="hint"></span>
         </div>
       </form>
       <div id="approvals"></div>
