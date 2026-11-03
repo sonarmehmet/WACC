@@ -28,6 +28,7 @@ class ChatScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.transparent,
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'chat-fab',
         onPressed: state.me == null ? null : () => _openComposer(context),
         icon: const Icon(Icons.send),
         label: const Text('Mesaj yaz'),
