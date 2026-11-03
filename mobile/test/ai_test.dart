@@ -265,8 +265,10 @@ void main() {
       await ai.test(groq);
       expect(ai.tests['groq']!.ok, isTrue);
       expect(await ai.toggle(groq), isNull);
+      await settle();
       expect(ai.providers.firstWhere((p) => p.name == 'groq').enabled, isFalse);
       expect(await ai.remove(groq), isNull);
+      await settle();
       expect(ai.providers.any((p) => p.name == 'groq'), isFalse);
       expect(ai.tests.containsKey('groq'), isFalse);
       expect(store.log, ['add:groq', 'test:groq', 'enabled:groq=false', 'remove:groq']);
@@ -289,6 +291,9 @@ void main() {
 
     Future<AppState> pump(WidgetTester tester) async {
       store = FakeAiStore();
+      tester.view.physicalSize = const Size(800, 3000); // tall: every list item gets built
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
       final state = AppState(
         store: MemorySettingsStore(const Settings(token: 'tok', backendToken: 'tok-agent')),
         clientFactory: (url, t) => _NoHub(),
