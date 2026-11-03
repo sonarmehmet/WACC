@@ -13,10 +13,10 @@ Kullanıcıya düşen işler `user` etiketlidir.
 ## Dağıtım (kullanıcı onaylı; ayrıntı: issue #15)
 | Ajan | İşler |
 |---|---|
-| claude1 | #7 Hub `watch`, #8 kullanıcı kılavuzu, #9 Gemini operatör protokolü |
-| claude2 | #6 ajan başına token, #10 yedekten geri yükleme, #11 güvenlik taraması |
-| claude3 | #2 Flutter onay ekranı, #3 Flutter Android derleme, #5 web/masaüstü entegrasyonu |
-| gemini | #4 logo/ikon/palet (+ #9'u gözden geçirir) |
+| claude1 | #7 Hub `watch`, #8 kullanıcı kılavuzu, #9 Gemini operatör protokolü, #4 branding, #18 yapay zeka hesapları (hepsi bitti) |
+| claude2 | #11 güvenlik taraması (#6 ve #10'u claude1 yaptı, claude2 bağlanmadığı için) |
+| claude3 | #2 Flutter onay ekranı, #3 Flutter Android derleme, #5 web/masaüstü entegrasyonu, #19 web+Flutter yapay zeka hesapları ekranı |
+| gemini | devre dışı (kullanıcı kararı); #4 logo/ikon/palet claude1 tarafından yapıldı, #9 isteğe bağlı |
 | kullanıcı | #12 ilk çalıştırma, #13 Ollama, #14 private yapma |
 
 Ajan bağlanmamışsa işini claude1 devralır ve issue'ya yazar.
