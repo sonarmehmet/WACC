@@ -1,5 +1,6 @@
 """Tkinter window: agents, tasks, approvals and the emergency stop. Refreshes every 5 seconds."""
 
+from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox, ttk
 
@@ -13,10 +14,19 @@ class App(tk.Tk):
         super().__init__()
         self.title("WACC")
         self.geometry("980x600")
+        self._set_icon()
         self.client = WaccClient()
         self._approvals = []
         self._build()
         self.after(200, self.refresh)
+
+    def _set_icon(self):
+        icon = Path(__file__).resolve().parents[2] / "assets" / "icon-192.png"
+        try:
+            self._icon = tk.PhotoImage(file=str(icon))  # keep a reference or Tk drops it
+            self.iconphoto(True, self._icon)
+        except (tk.TclError, OSError):
+            pass  # a missing icon must never stop the panel
 
     # ------------------------------------------------------------------ layout
     def _build(self):

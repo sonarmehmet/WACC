@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="WACC">
+  <title>WACC</title>
+  <rect width="1024" height="1024" rx="224" fill="#2557d6"/>
+  <g stroke="#ffffff" stroke-width="40" stroke-linecap="round" fill="none" opacity="0.95">
+    <path d="M512 512 L292 292"/>
+    <path d="M512 512 L732 292"/>
+    <path d="M512 512 L292 732"/>
+    <path d="M512 512 L732 732"/>
+  </g>
+  <circle cx="512" cy="512" r="116" fill="#ffffff"/>
+  <circle cx="512" cy="512" r="52" fill="#2557d6"/>
+  <g fill="#ffffff">
+    <circle cx="292" cy="292" r="64"/>
+    <circle cx="732" cy="292" r="64"/>
+    <circle cx="292" cy="732" r="64"/>
+    <circle cx="732" cy="732" r="64"/>
+  </g>
+  <circle cx="732" cy="292" r="26" fill="#2557d6"/>
+</svg>
