@@ -234,7 +234,7 @@ class SecurityRegressionTests(Base):
 
     def test_fetch_from_a_url_needs_approval(self):
         for remote in ("file://" + str(self.outside), "https://example.com/r.git", "ext::sh -c id", "host:path"):
-            self.assertEqual(self.run_(["git", "fetch", remote]).verdict, APPROVAL, remote)
+            self.assertNotEqual(self.run_(["git", "fetch", remote]).verdict, ALLOW, remote)  # APPROVAL, or DENY on Windows (drive path)
 
     def test_code_and_launch_files_need_approval_to_write(self):
         for path in (".github/workflows/ci.yml", "backend/wacc_backend/security.py", "hub/wacc_hub/auth.py",
