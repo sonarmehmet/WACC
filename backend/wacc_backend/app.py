@@ -251,7 +251,7 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
         engine.set_paused(True)
         return {"paused": True}
 
-    @app.post("/engine/resume", dependencies=[Depends(auth)])
+    @app.post("/engine/resume", dependencies=[Depends(user_only)])  # stopping is open to all, resuming is the human's call
     def resume():
         engine.set_paused(False)
         return {"paused": False}
@@ -261,8 +261,9 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
     def list_agents():
         return agents.list()
 
-    @app.post("/agents", status_code=201, dependencies=[Depends(auth)])
-    def register_agent(body: AgentIn):
+    @app.post("/agents", status_code=201)
+    def register_agent(body: AgentIn, who: str = Depends(caller)):
+        acting_agent(who, body.name.strip().lower())  # an agent may only register or update itself
         return run(agents.register, body.name, body.role, body.capabilities)
 
     @app.post("/agents/{name}/heartbeat")

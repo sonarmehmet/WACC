@@ -87,3 +87,43 @@ class PolicyAttackTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RedirectKeyLeakTests(unittest.TestCase):
+    def test_api_key_is_not_sent_to_a_redirect_target(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        from wacc_backend.orchestrator import OpenAICompatProvider, ProviderError
+
+        leaked = []
+
+        class Sink(BaseHTTPRequestHandler):
+            def do_GET(self):
+                leaked.append(self.headers.get("Authorization"))
+                self.send_response(200); self.end_headers(); self.wfile.write(b"{}")
+
+            def log_message(self, *a):
+                pass
+
+        sink = HTTPServer(("127.0.0.1", 0), Sink)
+
+        class Redirect(BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.send_response(302)
+                self.send_header("Location", "http://127.0.0.1:%d/steal" % sink.server_address[1])
+                self.end_headers()
+
+            def log_message(self, *a):
+                pass
+
+        redirect = HTTPServer(("127.0.0.1", 0), Redirect)
+        for srv in (sink, redirect):
+            threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            provider = OpenAICompatProvider("t", "local", "http://127.0.0.1:%d/v1" % redirect.server_address[1], "m",
+                                            api_key="sk-SECRET-KEY-123")
+            with self.assertRaises(ProviderError):
+                provider.complete("hi", None, 5)
+            self.assertEqual(leaked, [])
+        finally:
+            sink.shutdown(); redirect.shutdown(); sink.server_close(); redirect.server_close()
