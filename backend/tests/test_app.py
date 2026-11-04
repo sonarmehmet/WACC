@@ -215,7 +215,7 @@ if __name__ == "__main__":
 @unittest.skipUnless(HAVE_API, "fastapi/httpx not installed")
 class RequestSizeTests(unittest.TestCase):
     def test_oversized_bodies_are_refused_before_parsing(self):
-        from wacc_backend.app import MAX_REQUEST_BYTES
+        from wacc_backend.app import MAX_REQUEST_BYTES, create_app
         with tempfile.TemporaryDirectory() as tmp:
             settings = load_settings({"WACC_DATA_DIR": tmp})
             client = TestClient(create_app(settings, token="secret", user_token="human"))
