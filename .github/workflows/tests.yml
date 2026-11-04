@@ -126,3 +126,96 @@ jobs:
         run: python scripts/scan_secrets.py
       - name: Whole git history
         run: python scripts/scan_secrets.py --history
+
+  windows-installer:
+    # Builds WACC.exe (PyInstaller) and WACC-Setup.exe (Inno Setup), self-tests both, publishes the installer.
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build dependencies
+        run: python -m pip install fastapi uvicorn pydantic pyinstaller
+      - name: Build WACC.exe
+        run: python installer/build_exe.py
+      - name: Self-test the built exe (starts Hub, Backend and panel headless)
+        shell: pwsh
+        run: |
+          $env:WACC_DATA_DIR = Join-Path $env:RUNNER_TEMP "wacc-selftest-1"
+          $out = Join-Path $env:RUNNER_TEMP "selftest-1.json"
+          $p = Start-Process -FilePath "dist\WACC\WACC.exe" -ArgumentList "--selftest", $out -PassThru -Wait
+          if (Test-Path $out) { Get-Content $out }
+          Get-ChildItem $env:WACC_DATA_DIR -ErrorAction SilentlyContinue | Out-String
+          if (Test-Path "$env:WACC_DATA_DIR\wacc.log") { Get-Content "$env:WACC_DATA_DIR\wacc.log" -Tail 40 }
+          if ($p.ExitCode -ne 0) { throw "selftest failed with exit code $($p.ExitCode)" }
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $iscc = Get-Command iscc -ErrorAction SilentlyContinue
+          if (-not $iscc) {
+            $found = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+            if (-not $found) { choco install innosetup -y --no-progress; $found = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          } else { $found = $iscc.Source }
+          & $found installer\wacc.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+          Get-Item dist\WACC-Setup.exe | Select-Object Name, Length
+      - name: Silent install, then self-test the installed app with its default data folder
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "dist\WACC-Setup.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/NOICONS" -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "installer exit code $($p.ExitCode)" }
+          $exe = Join-Path $env:LOCALAPPDATA "Programs\WACC\WACC.exe"
+          if (-not (Test-Path $exe)) { throw "installed exe missing: $exe" }
+          Remove-Item Env:WACC_DATA_DIR -ErrorAction SilentlyContinue
+          $out = Join-Path $env:RUNNER_TEMP "selftest-2.json"
+          $q = Start-Process -FilePath $exe -ArgumentList "--selftest", $out -PassThru -Wait
+          if (Test-Path $out) { Get-Content $out }
+          $data = Join-Path $env:LOCALAPPDATA "WACC\data"
+          Get-ChildItem $data -ErrorAction SilentlyContinue | Out-String
+          if ($q.ExitCode -ne 0) { throw "installed selftest failed with exit code $($q.ExitCode)" }
+      - name: Start the installed app with its window, check it stays up, take a screenshot
+        shell: pwsh
+        run: |
+          $exe = Join-Path $env:LOCALAPPDATA "Programs\WACC\WACC.exe"
+          $app = Start-Process -FilePath $exe -PassThru
+          $ok = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            Start-Sleep -Seconds 1
+            try { if ((Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8765/health -TimeoutSec 2).StatusCode -eq 200) { $ok = $true; break } } catch {}
+          }
+          Start-Sleep -Seconds 8   # let the window open and connect
+          $app.Refresh()
+          $alive = -not $app.HasExited
+          try {
+            Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+            $b = [System.Windows.Forms.SystemInformation]::VirtualScreen
+            $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+            [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+            $bmp.Save("$env:RUNNER_TEMP\wacc-window.png")
+          } catch { Write-Host "screenshot failed: $_" }
+          Write-Host "hub up: $ok, process alive: $alive, window title: '$($app.MainWindowTitle)'"
+          $log = Join-Path $env:LOCALAPPDATA "WACC\data\wacc.log"
+          if (Test-Path $log) { Get-Content $log -Tail 30 }
+          Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
+          if (-not ($ok -and $alive)) { throw "GUI start failed (hub up=$ok, alive=$alive)" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: WACC-window-screenshot
+          path: ${{ runner.temp }}/wacc-window.png
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WACC-Setup
+          path: dist/WACC-Setup.exe
+      - name: Publish installer as the "latest" release (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag 2>$null
+          gh release create latest dist\WACC-Setup.exe --title "WACC (latest)" --notes "Çift tıkla kur: WACC-Setup.exe. Windows 10/11, yönetici izni gerekmez." --target ${{ github.sha }}

@@ -1,5 +1,7 @@
 """Tkinter window: agents, tasks, approvals and the emergency stop. Refreshes every 5 seconds."""
 
+import sys
+import webbrowser
 from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox, ttk
@@ -10,7 +12,9 @@ REFRESH_MS = 5000
 
 
 class App(tk.Tk):
-    def __init__(self):
+    def __init__(self, preset=None):
+        """preset: {"hub", "backend", "user"} tokens when the launcher started the services itself
+        (the installed app), so nothing has to be typed or pasted."""
         super().__init__()
         self.title("WACC")
         self.geometry("980x600")
@@ -18,15 +22,25 @@ class App(tk.Tk):
         self.client = WaccClient()
         self._approvals = []
         self._build()
-        self.after(200, self.refresh)
+        if preset:
+            for key in ("hub", "backend", "user"):
+                self.vars[key].set(preset.get(key, ""))
+            self.after(100, self.connect)
+        else:
+            self.after(200, self.refresh)
 
     def _set_icon(self):
-        icon = Path(__file__).resolve().parents[2] / "assets" / "icon-192.png"
-        try:
-            self._icon = tk.PhotoImage(file=str(icon))  # keep a reference or Tk drops it
-            self.iconphoto(True, self._icon)
-        except (tk.TclError, OSError):
-            pass  # a missing icon must never stop the panel
+        candidates = [Path(__file__).resolve().parents[2] / "assets" / "icon-192.png"]
+        bundle = getattr(sys, "_MEIPASS", None)  # inside the packaged exe
+        if bundle:
+            candidates.insert(0, Path(bundle) / "assets" / "icon-192.png")
+        for icon in candidates:
+            try:
+                self._icon = tk.PhotoImage(file=str(icon))  # keep a reference or Tk drops it
+                self.iconphoto(True, self._icon)
+                return
+            except (tk.TclError, OSError):
+                continue  # a missing icon must never stop the panel
 
     # ------------------------------------------------------------------ layout
     def _build(self):
@@ -39,6 +53,7 @@ class App(tk.Tk):
             self.vars[key] = var
             ttk.Entry(top, textvariable=var, show="*", width=18).pack(side="left", padx=(0, 8))
         ttk.Button(top, text="Bağlan", command=self.connect).pack(side="left")
+        ttk.Button(top, text="Web panel", command=lambda: webbrowser.open("http://127.0.0.1:8780")).pack(side="left", padx=6)
         ttk.Button(top, text="ACİL DURDUR", command=self.emergency_stop).pack(side="right")
         ttk.Button(top, text="Devam ettir", command=self.resume).pack(side="right", padx=6)
 
