@@ -210,3 +210,15 @@ class AppTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(HAVE_API, "fastapi/httpx not installed")
+class RequestSizeTests(unittest.TestCase):
+    def test_oversized_bodies_are_refused_before_parsing(self):
+        from wacc_backend.app import MAX_REQUEST_BYTES
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = load_settings({"WACC_DATA_DIR": tmp})
+            client = TestClient(create_app(settings, token="secret", user_token="human"))
+            h = {"X-WACC-Token": "secret"}
+            self.assertEqual(client.post("/memory", headers=h, json={"content": "z" * (MAX_REQUEST_BYTES + 10)}).status_code, 413)
+            self.assertEqual(client.get("/health").status_code, 200)
