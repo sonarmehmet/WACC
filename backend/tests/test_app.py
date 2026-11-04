@@ -44,9 +44,14 @@ class AppTests(unittest.TestCase):
         self.assertEqual(r.json()["payload"]["_agent"], "claude2")
         r = self.client.post("/jobs", headers=self.u, json=job)
         self.assertEqual(r.json()["payload"]["_agent"], "user")
-        # other job kinds keep working for the shared token (it only lost the right to start actions)
-        ok = self.client.post("/jobs", headers=self.h, json={"kind": "ai.complete", "title": "t", "payload": {"prompt": "p"}})
-        self.assertEqual(ok.status_code, 201)
+        # the shared token is read-only everywhere that starts work, spends budget or changes shared state
+        for path, body in (("/jobs", {"kind": "ai.complete", "title": "t", "payload": {"prompt": "p"}}),
+                           ("/ai/complete", {"prompt": "p"}), ("/memory", {"content": "poison"}),
+                           ("/projects", {"name": "P"}), ("/jobs/claim", {"worker": "w"})):
+            self.assertEqual(self.client.post(path, headers=self.h, json=body).status_code, 403, path)
+        # reading still works with it, and so does the fail-safe stop
+        self.assertEqual(self.client.get("/jobs", headers=self.h).status_code, 200)
+        self.assertEqual(self.client.post("/exec/stop", headers=self.h, json={"reason": "x"}).status_code, 200)
 
     def test_nan_and_inf_in_a_body_get_a_clean_422_not_a_crash(self):
         for path, raw in (("/ai/budget", '{"usd":NaN}'), ("/exec", '{"agent":"claude2","action":{"type":"list_dir","path":NaN}}'),
@@ -60,18 +65,18 @@ class AppTests(unittest.TestCase):
         self.assertEqual(self.client.get("/projects", headers={"X-WACC-Token": "nope"}).status_code, 401)
 
     def test_project_flow(self):
-        r = self.client.post("/projects", headers=self.h, json={"name": "WACC"})
+        r = self.client.post("/projects", headers=self.c2, json={"name": "WACC"})
         self.assertEqual(r.status_code, 201)
         pid = r.json()["id"]
-        self.assertEqual(self.client.post("/projects", headers=self.h, json={"name": "WACC"}).status_code, 409)
-        self.assertEqual(self.client.patch(f"/projects/{pid}", headers=self.h, json={"status": "PAUSED"}).json()["status"], "PAUSED")
-        self.assertEqual(self.client.patch(f"/projects/{pid}", headers=self.h, json={"status": "X"}).status_code, 400)
-        self.assertEqual(self.client.post(f"/projects/{pid}/archive", headers=self.h).json()["status"], "ARCHIVED")
+        self.assertEqual(self.client.post("/projects", headers=self.c2, json={"name": "WACC"}).status_code, 409)
+        self.assertEqual(self.client.patch(f"/projects/{pid}", headers=self.c2, json={"status": "PAUSED"}).json()["status"], "PAUSED")
+        self.assertEqual(self.client.patch(f"/projects/{pid}", headers=self.c2, json={"status": "X"}).status_code, 400)
+        self.assertEqual(self.client.post(f"/projects/{pid}/archive", headers=self.c2).json()["status"], "ARCHIVED")
         self.assertEqual(self.client.get("/projects", headers=self.h).json(), [])
         self.assertEqual(self.client.get("/projects/999", headers=self.h).status_code, 404)
 
     def test_engine_and_agents_over_api(self):
-        h = self.h
+        h = self.c2  # the shared token is read-only; an agent token does the writes
         self.assertEqual(self.client.get("/jobs").status_code, 401)
         j = self.client.post("/jobs", headers=h, json={"kind": "k", "title": "t", "priority": 1}).json()
         self.assertEqual(j["status"], "QUEUED")
@@ -89,7 +94,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual(self.client.post("/engine/resume", headers=h).status_code, 403)  # agents cannot resume
         self.assertEqual(self.client.post("/engine/resume", headers=self.c2).status_code, 403)
         self.assertEqual(self.client.post("/engine/resume", headers=self.u).status_code, 200)
-        self.assertEqual(self.client.post("/agents", headers=h, json={"name": "claude2", "role": "x"}).status_code, 403)
+        self.assertEqual(self.client.post("/agents", headers=self.h, json={"name": "claude2", "role": "x"}).status_code, 403)
         self.assertEqual(self.client.post("/agents", headers=self.c2, json={"name": "claude3", "role": "x"}).status_code, 403)
         r = self.client.post("/agents", headers=self.u, json={"name": "claude2", "role": "backend", "capabilities": ["api"]})
         self.assertEqual(r.status_code, 201)
@@ -99,7 +104,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual(len(self.client.get("/agents", headers=h).json()), 1)
 
     def test_ai_and_memory_over_api(self):
-        h = self.h
+        h = self.c2  # the shared token is read-only; an agent token does the writes
         self.assertEqual(self.client.post("/ai/complete", json={"prompt": "hi"}).status_code, 401)
         r = self.client.post("/ai/complete", headers=h, json={"prompt": "hello"})
         self.assertEqual(r.json()["provider"], "mock")

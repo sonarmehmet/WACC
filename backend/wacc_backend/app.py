@@ -207,6 +207,14 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
                                 f"This token belongs to {who}; it cannot act as {claimed!r}"})
         return who
 
+    def not_shared(who: str = Depends(caller)) -> str:
+        """The legacy shared token only reads (it is what the panel and the phone keep for viewing). Starting work,
+        spending AI budget or changing shared state needs an agent's own token or the user's."""
+        if who == "shared":
+            raise HTTPException(status_code=403, detail={"code": "FORBIDDEN", "message":
+                                "The shared token is read-only here; use your own agent token"})
+        return who
+
     def user_only(role: str = Depends(auth)) -> str:
         if role != "user":
             raise HTTPException(status_code=403, detail={"code": "FORBIDDEN", "message": "Only the user token may do this"})
@@ -227,7 +235,7 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
     def list_projects(include_archived: bool = False):
         return storage.list_projects(include_archived)
 
-    @app.post("/projects", status_code=201, dependencies=[Depends(auth)])
+    @app.post("/projects", status_code=201, dependencies=[Depends(auth), Depends(not_shared)])
     def create_project(body: ProjectIn):
         return run(storage.create_project, body.name, body.description)
 
@@ -238,16 +246,16 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
             raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Project not found"})
         return project
 
-    @app.patch("/projects/{project_id}", dependencies=[Depends(auth)])
+    @app.patch("/projects/{project_id}", dependencies=[Depends(auth), Depends(not_shared)])
     def patch_project(project_id: int, body: ProjectPatch):
         return run(storage.update_project, project_id, body.name, body.description, body.status)
 
-    @app.post("/projects/{project_id}/archive", dependencies=[Depends(auth)])
+    @app.post("/projects/{project_id}/archive", dependencies=[Depends(auth), Depends(not_shared)])
     def archive_project(project_id: int):
         return run(storage.archive_project, project_id)
 
     # ------------------------------------------------------------- task engine
-    @app.post("/jobs", status_code=201, dependencies=[Depends(auth)])
+    @app.post("/jobs", status_code=201, dependencies=[Depends(auth), Depends(not_shared)])
     def enqueue(body: JobIn, who: str = Depends(caller)):
         payload = body.payload
         if body.kind == "exec.run":
@@ -268,7 +276,7 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
     def job_summary():
         return {"counts": engine.counts(), "paused": engine.is_paused()}
 
-    @app.post("/jobs/claim", dependencies=[Depends(auth)])
+    @app.post("/jobs/claim", dependencies=[Depends(auth), Depends(not_shared)])
     def claim(body: ClaimIn):
         return {"job": run(engine.claim_next, body.worker, body.kinds)}
 
@@ -279,15 +287,15 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
             raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Job not found"})
         return job
 
-    @app.post("/jobs/{job_id}/complete", dependencies=[Depends(auth)])
+    @app.post("/jobs/{job_id}/complete", dependencies=[Depends(auth), Depends(not_shared)])
     def complete(job_id: int, body: CompleteIn):
         return run(engine.complete, job_id, body.worker, body.result)
 
-    @app.post("/jobs/{job_id}/fail", dependencies=[Depends(auth)])
+    @app.post("/jobs/{job_id}/fail", dependencies=[Depends(auth), Depends(not_shared)])
     def fail(job_id: int, body: FailIn):
         return run(engine.fail, job_id, body.worker, body.error, body.retry)
 
-    @app.post("/jobs/{job_id}/cancel", dependencies=[Depends(auth)])
+    @app.post("/jobs/{job_id}/cancel", dependencies=[Depends(auth), Depends(not_shared)])
     def cancel(job_id: int):
         return run(engine.cancel, job_id)
 
@@ -321,7 +329,7 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
         return run(agents.set_enabled, name, body.enabled)
 
     # ----------------------------------------------------------- AI orchestrator
-    @app.post("/ai/complete", dependencies=[Depends(auth)])
+    @app.post("/ai/complete", dependencies=[Depends(auth), Depends(not_shared)])
     def ai_complete(body: CompleteRequest):
         return run(orchestrator.complete, body.prompt, body.system, body.prefer, body.provider, body.max_tokens)
 
@@ -369,7 +377,7 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
         return {"budget_usd": run(orchestrator.set_budget, body.usd)}
 
     # ------------------------------------------------------------------ memory
-    @app.post("/memory", status_code=201, dependencies=[Depends(auth)])
+    @app.post("/memory", status_code=201, dependencies=[Depends(auth), Depends(not_shared)])
     def memory_add(body: MemoryIn):
         return run(memory.add, body.content, body.tags, body.project_id, body.source)
 
@@ -388,7 +396,7 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
             raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Memory not found"})
         return entry
 
-    @app.post("/memory/{memory_id}/archive", dependencies=[Depends(auth)])
+    @app.post("/memory/{memory_id}/archive", dependencies=[Depends(auth), Depends(not_shared)])
     def memory_archive(memory_id: int):
         return run(memory.archive, memory_id)
 

@@ -25,6 +25,8 @@ Yöntem: gerçek Hub + Backend (RealExecutor, geçici proje köküyle) + web pan
 
 | 14 | **Yüksek** | `POST /jobs` rol kontrolü yalnızca "geçerli herhangi bir token": Backend'in **salt okunur paylaşılan tokenı** (panel/Flutter'da saklanan görüntüleme tokenı) `exec.run` işi sıraya koyup Worker kimliğiyle eylem çalıştırabiliyordu (kanıt: dosya yazıldı); ajanlar da eylemlerini "worker" adıyla yapıp hesap verebilirliği (onay `requested_by`, denetim, ajan başı kurallar) kaçırabiliyordu | `exec.run` işleri sıraya koyanın kimliğiyle çalışır (`_agent`, istemciden gelen değer ezilir); paylaşılan token `exec.run` işi başlatamaz (403) |
 
+| 15 | Yüksek | Paylaşılan "salt okunur" token şunları da yapabiliyordu: `/ai/complete` (bulut bütçesi harcama), `/memory` yazma (kalıcı prompt zehirleme), `/jobs` + `claim/complete/fail/cancel` (iş sahteciliği/iptali), `/projects` yazma | Bu rotalar `not_shared` ister (403). Okuma ve `/exec/stop`, `/engine/pause` (güvenli yön) paylaşılan tokenla çalışmaya devam eder |
+
 Tur 2'de dayananlar: 30 paralel istekle aynı onayı tüketme (yalnızca 1 çalışır), aynı anda onay+ret (tek karar), panelde 8 XSS yükü × 7 sekme (hiçbiri çalışmadı, metin düz yazı), ajan tokeniyle `/engine/*`, `/agents*` yazmaları, kimlik taklidi (`agent` alanı), `limit=-1/abc/10^20`, `cwd=../`, `[[[…` iç içe gövde.
 
 ## Denenen ve dayanan saldırılar
