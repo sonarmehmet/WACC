@@ -661,6 +661,15 @@ class FrontendSourceTests(unittest.TestCase):
         self.assertIn('id="aiToken" type="password" autocomplete="new-password"', html)
         self.assertIn('id="aiKey" type="password" autocomplete="new-password"', html)
 
+    def test_approval_display_reveals_hidden_characters_and_never_cuts_silently(self):
+        source = (WEB / "public" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("HIDDEN_CHARS", source)
+        for needle in ("\\u2028-\\u202e", "\\u200b-\\u200f", "\\u2060-\\u206f", "ASCII dışı", "gösterilmedi"):
+            self.assertIn(needle, source)
+        # the confirm dialog and the card use the same reveal path; no 300-character cut of the action
+        self.assertNotIn("return clip(text, 300);", source)
+        self.assertIn("splitPreview(item.action)", source)
+
     def test_branding_files_are_linked_and_served(self):
         html = (WEB / "public" / "index.html").read_text(encoding="utf-8")
         self.assertIn('rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png"', html)

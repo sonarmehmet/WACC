@@ -203,6 +203,30 @@ class ClassifyTests(Base):
         self.assertEqual(len({a.action_hash, c.action_hash, d.action_hash}), 3)
 
 
+class ApprovalReviewTests(Base):
+    def test_a_file_write_approval_shows_the_content_it_will_write(self):
+        svc = self.service()
+        act = {"type": "write_file", "path": "conftest.py", "content": "import os\nos.system('echo hi')\n"}
+        r = svc.submit("claude2", act)
+        self.assertEqual(r["status"], "APPROVAL_REQUIRED")
+        stored = self.approvals.get(r["approval_id"])["action"]
+        self.assertIn("os.system('echo hi')", stored["content_preview"])  # the user can read what is approved
+        self.approvals.decide(r["approval_id"], True, "user")
+        self.assertEqual(svc.submit("claude2", act, r["approval_id"])["status"], "OK")  # hash unaffected by the preview
+        self.assertEqual(self.fake.calls[-1]["content"], act["content"])
+
+    def test_long_content_preview_is_marked_truncated(self):
+        svc = self.service()
+        act = {"type": "write_file", "path": "conftest.py", "content": "x" * 10000}
+        stored = self.approvals.get(svc.submit("claude2", act)["approval_id"])["action"]
+        self.assertEqual(len(stored["content_preview"]), 6000)
+        self.assertEqual(stored["content_preview_truncated"], 4000)
+
+    def test_other_approvals_have_no_preview(self):
+        stored = self.approvals.get(self.service().submit("claude2", {"type": "delete_path", "path": "notes.txt"})["approval_id"])["action"]
+        self.assertNotIn("content_preview", stored)
+
+
 class ServiceTests(Base):
     def test_allowed_action_runs_and_is_audited(self):
         svc = self.service()

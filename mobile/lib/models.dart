@@ -287,12 +287,29 @@ class ApprovalItem {
 
   bool get isRisky => riskyActionClasses.contains(actionClass);
 
-  String get prettyAction => const JsonEncoder.withIndent('  ').convert(action);
+  /// The action as it will run, with hidden characters made visible. The file content of a write is shown
+  /// separately by [contentPreview].
+  String get prettyAction {
+    final rest = Map<String, dynamic>.from(action)
+      ..remove('content_preview')
+      ..remove('content_preview_truncated');
+    return revealAction(const JsonEncoder.withIndent('  ').convert(rest));
+  }
 
-  /// One line, clipped, for dialogs and lists.
+  /// What a file write will contain (stored by the Backend with the request), or '' for other actions.
+  String get contentPreview {
+    final text = action['content_preview'];
+    if (text is! String) return '';
+    final more = _int(action['content_preview_truncated']);
+    final revealed = revealText(text);
+    return '${revealed.warning.isEmpty ? '' : '${revealed.warning}\n'}${revealed.text}'
+        '${more > 0 ? '\n… ($more karakter daha var, gösterilmedi)' : ''}';
+  }
+
+  /// One line for lists. Hidden characters are escaped; it is cut only with an explicit note.
   String get shortAction {
-    final text = jsonEncode(action);
-    return text.length > 300 ? '${text.substring(0, 300)}…' : text;
+    final text = revealAction(jsonEncode(action));
+    return text.length > 300 ? '${text.substring(0, 300)}… (devamı var: ham eyleme bak)' : text;
   }
 
   String get shortHash => actionHash.length > 16 ? '${actionHash.substring(0, 16)}…' : actionHash;
@@ -409,4 +426,41 @@ class AiTestResult {
   final String reply;
   final String error;
   final int latencyMs;
+}
+
+/// Hidden or direction-changing characters that agents could use to make an action look harmless.
+final RegExp _hiddenChars = RegExp(
+    '[\\u0000-\\u0008\\u000b-\\u001f\\u007f-\\u009f\\u00ad\\u061c\\u180e\\u200b-\\u200f\\u2028-\\u202e'
+    '\\u2060-\\u206f\\ufeff\\ufff9-\\ufffb\\ud800-\\udfff]');
+
+class RevealedText {
+  const RevealedText(this.text, this.hidden, this.nonAscii);
+
+  final String text;
+  final int hidden;
+  final bool nonAscii;
+
+  String get warning {
+    final parts = <String>[
+      if (hidden > 0) '$hidden gizli/yön değiştiren karakter \\uXXXX olarak gösterildi',
+      if (nonAscii) 'ASCII dışı karakter var (benzer görünen harfler olabilir)',
+    ];
+    return parts.isEmpty ? '' : 'DİKKAT: ${parts.join('; ')}.';
+  }
+}
+
+/// Shows hidden characters as \uXXXX so what is displayed is what will run.
+RevealedText revealText(String text) {
+  var hidden = 0;
+  final shown = text.replaceAllMapped(_hiddenChars, (m) {
+    hidden += 1;
+    return '\\u${m[0]!.codeUnitAt(0).toRadixString(16).padLeft(4, '0')}';
+  });
+  return RevealedText(shown, hidden, shown.runes.any((r) => r > 0x7f));
+}
+
+/// [revealText] with the warning (if any) on top.
+String revealAction(String text) {
+  final r = revealText(text);
+  return r.warning.isEmpty ? r.text : '${r.warning}\n${r.text}';
 }

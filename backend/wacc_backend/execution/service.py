@@ -80,7 +80,7 @@ class ExecutionService:
             elif approval_id is not None:
                 used_approval = self.approvals.consume(approval_id, agent, decision.action_hash)["id"]
             else:
-                req = self.approvals.request(agent, decision.action_class, decision.normalized, decision.action_hash,
+                req = self.approvals.request(agent, decision.action_class, _reviewable(decision), decision.action_hash,
                                              decision.summary, decision.reason)
                 self.approvals.audit(agent, decision.action_class, decision.summary, "APPROVAL_REQUESTED",
                                      decision.reason, approval_id=req["id"])
@@ -108,6 +108,21 @@ class ExecutionService:
         else:
             out["error"] = mask(detail)
         return out
+
+
+PREVIEW_CHARS = 6000
+
+
+def _reviewable(decision) -> dict:
+    """What the approval screen shows. A file write is approved by the hash of its content, so the user must be able
+    to read that content: a preview is stored with the request (it is not part of the hash and never executed)."""
+    shown = dict(decision.normalized)
+    content = decision.payload.get("content") if decision.payload else None
+    if isinstance(content, str):
+        shown["content_preview"] = content[:PREVIEW_CHARS]
+        if len(content) > PREVIEW_CHARS:
+            shown["content_preview_truncated"] = len(content) - PREVIEW_CHARS
+    return shown
 
 
 def _mask_result(result):

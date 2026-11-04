@@ -705,10 +705,49 @@ function notifyNewApprovals(pending) {
   } catch (e) { /* some browsers only allow notifications from a service worker */ }
 }
 
-function actionSummary(action) {
+// What the user decides on must show exactly what will run. Text from agents can hide itself: bidi
+// overrides (U+202E) reorder what is drawn, zero-width and control characters are invisible, and
+// look-alike letters (Cyrillic "а", Greek "υ") pass for ASCII. Those are shown as \uXXXX escapes and
+// counted; nothing is cut off silently.
+const HIDDEN_CHARS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb\ud800-\udfff]/g;
+const NON_ASCII_LETTER = /[^\u0000-\u007f]/;
+function revealText(text) {
+  const s = String(text);
+  let hidden = 0;
+  const shown = s.replace(HIDDEN_CHARS, (c) => {
+    hidden += 1;
+    return "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0");
+  });
+  return { text: shown, hidden, nonAscii: NON_ASCII_LETTER.test(shown) };
+}
+
+function describeSuspicion(info) {
+  const parts = [];
+  if (info.hidden) parts.push(info.hidden + " gizli/yön değiştiren karakter \\uXXXX olarak gösterildi");
+  if (info.nonAscii) parts.push("ASCII dışı karakter var (benzer görünen harfler olabilir)");
+  return parts.length ? "DİKKAT: " + parts.join("; ") + "." : "";
+}
+
+// A file write is approved by the hash of its content, so the Backend stores a preview of it with the request.
+function splitPreview(action) {
+  if (!action || typeof action !== "object" || typeof action.content_preview !== "string") return { rest: action, preview: "" };
+  const { content_preview: preview, content_preview_truncated: more, ...rest } = action;
+  const info = revealText(preview);
+  const warn = describeSuspicion(info);
+  return { rest, preview: (warn ? warn + "\n" : "") + info.text + (more ? "\n… (" + more + " karakter daha var, gösterilmedi)" : "") };
+}
+
+const ACTION_LIMIT = 4000;
+function actionSummary(action, pretty) {
   let text;
-  try { text = JSON.stringify(action); } catch (e) { text = String(action); }
-  return clip(text, 300);
+  try { text = JSON.stringify(action, null, pretty ? 2 : 0); } catch (e) { text = String(action); }
+  const info = revealText(text);
+  let out = info.text;
+  if (out.length > ACTION_LIMIT) {
+    out = out.slice(0, ACTION_LIMIT) + "\n… (" + (out.length - ACTION_LIMIT) + " karakter daha var, gösterilmedi: ONAYLAMA, reddet)";
+  }
+  const warn = describeSuspicion(info);
+  return warn ? warn + "\n" + out : out;
 }
 
 function remaining(ts) {
@@ -722,8 +761,10 @@ function remaining(ts) {
 async function decide(item, verb) {
   if (!state.approvalToken) { toast("Önce onay token'ını gir", true); return; }
   if (verb === "approve") {
+    const parts = splitPreview(item.action);
     const ok = window.confirm("Bu eylemi ONAYLIYOR musun?\n\nSınıf: " + item.action_class +
-      "\nİsteyen: " + item.requested_by + "\n\n" + actionSummary(item.action));
+      "\nİsteyen: " + item.requested_by + "\n\n" + actionSummary(parts.rest) +
+      (parts.preview ? "\n\nYAZILACAK İÇERİK:\n" + clip(parts.preview, 3000) : ""));
     if (!ok) return;
   }
   try {
@@ -756,7 +797,8 @@ async function execControl(verb) {
 function pendingCard(item) {
   const risky = RISKY_CLASSES.includes(item.action_class);
   let raw;
-  try { raw = JSON.stringify(item.action, null, 2); } catch (e) { raw = String(item.action); }
+  const parts = splitPreview(item.action);
+  raw = actionSummary(parts.rest, true);
   const canDecide = Boolean(state.approvalToken);
   return el("article", { class: "card pending" },
     el("div", { class: "head" },
@@ -765,9 +807,11 @@ function pendingCard(item) {
       el("span", { text: "isteyen: " + item.requested_by }),
       el("span", { class: "meta", text: remaining(item.expires_at) })),
     el("div", { class: "meta", text: "Ham eylem (backend'in doğruladığı biçim; neyin çalışacağı budur):" }),
-    el("pre", { class: "raw", text: clip(raw, 4000) }),
+    el("pre", { class: "raw", text: raw }),
+    parts.preview ? el("div", { class: "meta", text: "Yazılacak içerik (önizleme; onay bu içeriğin özetine bağlıdır):" }) : null,
+    parts.preview ? el("pre", { class: "raw", text: parts.preview }) : null,
     el("div", { class: "meta", text: "Eylem özeti SHA-256: " + String(item.action_hash || "").slice(0, 16) + "… (onay yalnızca bu eyleme bağlıdır)" }),
-    el("div", { class: "meta", text: "Backend risk özeti: " + clip(item.risk_summary, 300) }),
+    el("div", { class: "meta", text: "Backend risk özeti: " + revealText(clip(item.risk_summary, 300)).text }),
     el("div", { class: "meta", text: "Ajanın kendi açıklaması güvenilir değildir; karar için yalnızca yukarıdaki ham eyleme bak." }),
     el("div", { class: "actions" },
       el("button", {
@@ -810,7 +854,7 @@ function renderApprovals() {
         ? dataTable(["#", "İsteyen", "Sınıf", "Durum", "Karar veren", "Zaman", "Eylem"],
           done.slice(0, 20).map((i) => [String(i.id), i.requested_by, i.action_class, chip(i.status,
             i.status === "DENIED" ? "bad" : (i.status === "EXECUTED" ? "" : "warn")),
-            i.decided_by || "-", fmtTime(i.decided_at || i.created_at), actionSummary(i.action)]))
+            i.decided_by || "-", fmtTime(i.decided_at || i.created_at), clip(actionSummary(i.action), 300)]))
         : emptyNote("Henüz karar yok.")));
     parts.push(section("Denetim kaydı",
       a.audit.length

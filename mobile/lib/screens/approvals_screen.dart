@@ -243,6 +243,11 @@ class _ApprovalsScreenState extends State<ApprovalsScreen> {
               style: Theme.of(context).textTheme.bodySmall,
             ),
             _RawAction(text: item.prettyAction),
+            if (item.contentPreview.isNotEmpty) ...[
+              Text('Yazılacak içerik (önizleme; onay bu içeriğin özetine bağlıdır):',
+                  style: Theme.of(context).textTheme.bodySmall),
+              _RawAction(text: item.contentPreview),
+            ],
             Text(
               'Eylem özeti SHA-256: ${item.shortHash}',
               style: Theme.of(context).textTheme.bodySmall,
@@ -306,7 +311,9 @@ class _RawAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final clipped = text.length > 4000 ? '${text.substring(0, 4000)}…' : text;
+    final clipped = text.length > 4000
+        ? '${text.substring(0, 4000)}\n… (${text.length - 4000} karakter daha var, gösterilmedi: ONAYLAMA, reddet)'
+        : text;
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.symmetric(vertical: 6),
@@ -342,6 +349,10 @@ class ApproveDialog extends StatelessWidget {
             Text('İsteyen: ${item.requestedBy}'),
             const SizedBox(height: 8),
             _RawAction(text: item.prettyAction),
+            if (item.contentPreview.isNotEmpty) ...[
+              const Text('Yazılacak içerik:'),
+              _RawAction(text: item.contentPreview),
+            ],
             Text('SHA-256: ${item.shortHash}', style: Theme.of(context).textTheme.bodySmall),
           ],
         ),
