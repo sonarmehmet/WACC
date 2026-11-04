@@ -22,7 +22,7 @@ from .storage import Storage, StorageError
 STATUS_MAP = {"NOT_FOUND": 404, "DUPLICATE": 409, "FORBIDDEN": 403, "BAD_STATE": 409,
               "PROJECT_ARCHIVED": 409, "DISABLED": 409, "BUDGET_EXCEEDED": 429, "EMERGENCY_STOP": 423,
               "NOT_APPROVED": 403, "HASH_MISMATCH": 403,
-              "NO_PROVIDER": 503, "ALL_FAILED": 502, "NOT_REMOVABLE": 409, "TOO_MANY": 409}
+              "NO_PROVIDER": 503, "ALL_FAILED": 502, "NOT_REMOVABLE": 409, "TOO_MANY": 409, "TOO_MANY_PENDING": 429}
 
 
 class ProjectIn(BaseModel):

@@ -47,6 +47,9 @@ def _rows(rs):
     return [_row(r) for r in rs]
 
 
+MAX_LOCKS_PER_AGENT = 40
+
+
 def normalize_path(path: str) -> str:
     if not isinstance(path, str) or not path.strip():
         raise HubError("BAD_PATH", "Path is empty")
@@ -462,6 +465,9 @@ class Hub:
         with self.tx() as conn:
             self._guard(conn, agent)
             now = db.utcnow()
+            held = conn.execute("SELECT COUNT(*) FROM locks WHERE owner=? AND expires_at>?", (agent, now)).fetchone()[0]
+            if held >= MAX_LOCKS_PER_AGENT and not conn.execute("SELECT 1 FROM locks WHERE path=? AND owner=?", (path, agent)).fetchone():
+                raise HubError("TOO_MANY_LOCKS", f"{agent} already holds {held} locks; release some first")
             for lk in conn.execute("SELECT * FROM locks").fetchall():
                 if not _overlaps(lk["path"], path):
                     continue
