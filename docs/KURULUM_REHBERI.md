@@ -4,7 +4,32 @@ Bu rehber Windows 10'da hiçbir şey kurulu değilken başlar ve WACC'ı çalı�
 
 > Dürüst not: Bu adımlar GitHub'daki otomatik testlerde (Windows dahil) doğrulandı. Senin bilgisayarında, gerçek bir modelle ve telefonla **henüz denenmedi**. Takıldığın yerde ekrandaki yazıyı olduğu gibi kopyalayıp bize ilet (en sonda "Bize ne yazacaksın" bölümü var).
 
-İçindekiler: 1 Ön hazırlık · 2 İndirme · 3 İlk başlatma · 4 Token'ları bulma · 5 Web panel · 6 Masaüstü uygulaması · 7 Onay verme · 8 Ajan ekleme · 9 Yapay zekâ hesabı / Ollama · 10 Durdurma, yedek, güncelleme · 11 Telefon · 12 Sorunlar · 13 Bize ne yazacaksın
+İçindekiler: Kolay yol (WACC-Setup.exe) · 1 Ön hazırlık · 2 İndirme · 3 İlk başlatma · 4 Token'ları bulma · 5 Web panel · 6 Masaüstü uygulaması · 7 Onay verme · 8 Ajan ekleme · 9 Yapay zekâ hesabı / Ollama · 10 Durdurma, yedek, güncelleme · 11 Telefon · 12 Sorunlar · 13 Bize ne yazacaksın
+
+---
+
+## KOLAY YOL: tek dosya, çift tık (önerilen)
+
+Python, Git, token, ayar: hiçbiri gerekmez.
+
+1. Tarayıcıda şu adrese git: **https://github.com/sonarmehmet/WACC/releases/tag/latest**
+2. **Assets** altındaki **WACC-Setup.exe** dosyasına tıkla, iner (yaklaşık 17 MB).
+3. İnen **WACC-Setup.exe** dosyasına çift tıkla.
+4. Windows mavi bir uyarı gösterebilir: **"Windows bilgisayarınızı korudu"**. Bunun sebebi kurulum dosyasının ücretli bir yazılım sertifikasıyla **imzalanmamış** olması; dosya bizim derlememiz. **Ek bilgi**'ye bas, sonra **Yine de çalıştır**'a bas.
+5. Kurulum yönetici izni istemez. Sihirbazda **İleri**/**Kur**'a bas, en sonda **WACC'ı şimdi başlat** kutusu işaretli gelir, **Bitir**'e bas.
+6. WACC penceresi açılır. **Token yazman gerekmez**, pencere kendiliğinden bağlanır. Masaüstünde ve Başlat menüsünde **WACC** simgesi oluşur; sonraki seferlerde ona çift tıkla.
+7. Tarayıcıdaki panel için pencerenin üstündeki **Web panel** düğmesine bas (adres http://127.0.0.1:8780).
+
+Bilmen gerekenler:
+- Hub, Backend ve web paneli WACC.exe'nin içinde çalışır. Pencereyi kapatınca hepsi durur.
+- Verilerin (veritabanı, token'lar, ajan çalışma klasörü) `%LOCALAPPDATA%\WACC` içinde durur. Kaldırırken silinmez. Dosya gezgininin adres çubuğuna `%LOCALAPPDATA%\WACC` yazıp Enter'a basarak açabilirsin.
+- Yapay zekâ modeli bağlamak için pencerede **Yapay Zeka** sekmesi (bkz. bölüm 9). Onay token'ı pencerede hazır, yazman gerekmez.
+- Kaldırmak: Windows **Ayarlar → Uygulamalar → WACC → Kaldır**.
+- "Port kullanımda" hatası görürsen WACC zaten açıktır (görev çubuğuna bak) ya da eski bir `start_wacc.bat` penceresi açıktır, kapat.
+- Depo private yapılınca bu indirme adresi için GitHub'a giriş yapman gerekir.
+- Bu kurulum GitHub'ın Windows sunucusunda derlenip kuruldu ve açılışı otomatik denendi; **senin makinende, gerçek bir ajan ve modelle henüz denenmedi**. Hata olursa ekrandaki yazıyı ve `%LOCALAPPDATA%\WACC\data\wacc.log` dosyasının son satırlarını bize yaz.
+
+Aşağıdaki adımlar (1-12) kaynak koddan elle kurulum içindir; kurulum dosyasını kullanıyorsan gerekmez.
 
 ---
 
