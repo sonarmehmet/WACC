@@ -13,7 +13,7 @@ ApprovalItem _item(Map<String, dynamic> action) => ApprovalItem.fromJson({
 void main() {
   group('revealText', () {
     test('bidi override, zero width and control characters become visible escapes', () {
-      final r = revealText('a‮b​c\u0007d');
+      final r = revealText('a\u202eb\u200bc\u0007d');
       expect(r.text, 'a\\u202eb\\u200bc\\u0007d');
       expect(r.hidden, 3);
       expect(r.warning, contains('3 gizli'));
@@ -42,18 +42,18 @@ void main() {
     test('prettyAction hides nothing and warns', () {
       final item = _item({
         'type': 'run',
-        'argv': ['pip', 'install', 'reque‮stsx']
+        'argv': ['pip', 'install', 'reque\u202estsx']
       });
       expect(item.prettyAction, startsWith('DİKKAT'));
       expect(item.prettyAction, contains('\\u202e'));
-      expect(item.prettyAction, isNot(contains('‮')));
+      expect(item.prettyAction, isNot(contains('\u202e')));
     });
 
     test('a file write shows its content preview separately, with escapes', () {
       final item = _item({
         'type': 'write_file',
         'path': 'conftest.py',
-        'content_preview': "import os\nos.system('x')​",
+        'content_preview': "import os\nos.system('x')\u200b",
         'content_preview_truncated': 120,
       });
       expect(item.prettyAction, isNot(contains('os.system')));
@@ -69,10 +69,10 @@ void main() {
     test('shortAction says when it is cut, and still escapes', () {
       final long = _item({
         'type': 'run',
-        'argv': List.generate(60, (i) => 'package-$i') + ['TAIL‮']
+        'argv': List.generate(60, (i) => 'package-$i') + ['TAIL\u202e']
       });
       expect(long.shortAction, contains('devamı var'));
-      expect(long.shortAction, isNot(contains('‮')));
+      expect(long.shortAction, isNot(contains('\u202e')));
     });
   });
 }
