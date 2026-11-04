@@ -113,7 +113,6 @@ class ClassifyTests(Base):
 
     def test_run_allowlist(self):
         for argv in (["git", "status"], ["git", "commit", "-m", "fix: a/b path"], ["git", "add", "."],
-                     ["python", "-m", "compileall", "backend"], ["flutter", "analyze"],
                      ["dart", "format", "."], ["adb", "devices"],
                      ["node", "--version"], ["python.exe", "--version"]):
             d = self.c({"type": "run", "argv": argv})
@@ -121,7 +120,8 @@ class ClassifyTests(Base):
 
     def test_running_project_code_needs_approval_unless_opted_in(self):
         for argv in (["python", "-m", "pytest", "backend"], ["python3", "-m", "unittest"], ["flutter", "test"],
-                     ["flutter", "build", "apk", "--release"], ["dart", "test"]):
+                     ["flutter", "build", "apk", "--release"], ["dart", "test"],
+                     ["python", "-m", "compileall", "backend"], ["flutter", "analyze"], ["dart", "analyze"]):
             d = self.c({"type": "run", "argv": argv})
             self.assertEqual(d.verdict, APPROVAL, argv)
             opted = classify({"type": "run", "argv": argv}, [self.root], auto_run_code=True)

@@ -165,6 +165,9 @@ def make_handler(hub_url: str, backend_url: str = DEFAULT_BACKEND):
                 length = int(self.headers.get("Content-Length") or 0)
             except ValueError:
                 length = 0
+            if length < 0:
+                self._json(400, {"detail": "Bad Content-Length"})
+                return None
             if length > MAX_BODY:
                 self._json(413, {"detail": "Request too large"})
                 return None
