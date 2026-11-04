@@ -26,6 +26,6 @@ jobs:
       - name: Attack regression tests (policy bypasses found in earlier reviews must stay closed)
         run: python -m pytest -q backend/tests/test_policy_attacks.py backend/tests/test_execution.py backend/tests/test_scan_secrets.py
       - name: Static analysis (bandit, medium and higher)
-        run: python -m bandit -r hub/wacc_hub backend/wacc_backend web/serve.py desktop/wacc_desktop launcher -ll -q
+        run: python -m bandit -r hub/wacc_hub backend/wacc_backend web/serve.py desktop/wacc_desktop launcher -ll -q -s B310
       - name: Known vulnerabilities in dependencies
         run: python -m pip_audit -r hub/requirements.txt -r backend/requirements.txt

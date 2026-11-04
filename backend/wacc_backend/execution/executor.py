@@ -98,8 +98,10 @@ class RealExecutor(Executor):
 
     # --------------------------------------------------------------- network
     def _http_get(self, action, should_stop):
+        if not str(action["url"]).lower().startswith("https://"):  # the policy already insists; never rely on one layer
+            raise PermissionError("Only https URLs may be fetched")
         req = urllib.request.Request(action["url"], headers={"User-Agent": "WACC-exec/0.1"})
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:  # nosec B310 - https only, checked above
             body = resp.read(MAX_OUTPUT)
             return {"status": resp.status, "body": body.decode("utf-8", "replace")}
 
