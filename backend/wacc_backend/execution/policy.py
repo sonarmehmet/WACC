@@ -135,6 +135,26 @@ class Decision:
         return hashlib.sha256(blob.encode()).hexdigest()
 
 
+_PLAIN_PACKAGE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.\-]*(\[[A-Za-z0-9_,\-]+\])?((==|>=|<=|~=|!=|<|>)[A-Za-z0-9_.*+\-]+)?")
+_SAFE_INSTALL_FLAGS = ("--upgrade", "-U", "--quiet", "-q", "--no-input", "--disable-pip-version-check")
+
+
+def plain_package_install(normalized: dict) -> bool:
+    """True when an install only names packages from the default index (name, optional version). Only those may
+    skip a second approval: 'pip install .', '-r file', URLs, other indexes or editable installs run content that
+    can change after the user approved the identical command line."""
+    argv = normalized.get("argv") or []
+    if argv[:4] == ["python", "-m", "pip", "install"]:
+        rest = argv[4:]
+    elif argv[:2] == ["pip", "install"]:
+        rest = argv[2:]
+    else:
+        return False  # flutter/dart/npm installs always ask again
+    names = [a for a in rest if not a.startswith("-")]
+    flags = [a for a in rest if a.startswith("-")]
+    return bool(names) and all(_PLAIN_PACKAGE.fullmatch(a) for a in names) and all(f in _SAFE_INSTALL_FLAGS for f in flags)
+
+
 def _deny(cls, reason, summary="", normalized=None):
     return Decision(cls, DENY, reason, summary, normalized or {})
 

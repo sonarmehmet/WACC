@@ -12,7 +12,7 @@ from ..engine import TaskEngine
 from ..storage import Storage, StorageError
 from .approvals import Approvals, mask
 from .executor import ExecutionKilled, Executor
-from .policy import (ALLOW, APPROVAL, DEFAULT_NETWORK_ALLOWLIST, DENY, INSTALL, classify)
+from .policy import (ALLOW, APPROVAL, DEFAULT_NETWORK_ALLOWLIST, DENY, INSTALL, classify, plain_package_install)
 
 STOP_FILE_NAME = "EMERGENCY_STOP"  # also written by the Hub, so both systems share one stop switch
 
@@ -74,7 +74,8 @@ class ExecutionService:
 
         used_approval = None
         if decision.verdict == APPROVAL:
-            if decision.action_class == INSTALL and self.approvals.previously_approved(decision.action_hash):
+            if (decision.action_class == INSTALL and plain_package_install(decision.normalized)
+                    and self.approvals.previously_approved(decision.action_hash)):
                 pass  # same package/version/project was approved before (spec 9.2)
             elif approval_id is not None:
                 used_approval = self.approvals.consume(approval_id, agent, decision.action_hash)["id"]

