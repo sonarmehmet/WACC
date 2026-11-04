@@ -18,6 +18,9 @@ _MASK = re.compile(r"(sk-[A-Za-z0-9_-]{8,}|ghp_[A-Za-z0-9]{10,}|AKIA[0-9A-Z]{12,
                    r"(?i:(?:api[_-]?key|token|password|secret)\s*[=:]\s*)\S+)")
 
 
+MAX_PENDING_PER_AGENT = 20
+
+
 def mask(text: str, limit: int = 2000) -> str:
     return _MASK.sub("[masked]", text or "")[:limit]
 
@@ -70,6 +73,10 @@ class Approvals:
                                "AND expires_at>?", (action_hash, requested_by, _fmt(now))).fetchone()
             if dup:
                 return _approval(dup)
+            pending = conn.execute("SELECT COUNT(*) FROM approvals WHERE requested_by=? AND status='PENDING' AND expires_at>?",
+                                   (requested_by, _fmt(now))).fetchone()[0]
+            if pending >= MAX_PENDING_PER_AGENT:  # one agent must not bury the user's real requests
+                raise StorageError("TOO_MANY_PENDING", f"{requested_by} already has {pending} requests waiting for the user")
             cur = conn.execute(
                 "INSERT INTO approvals(requested_by, action_class, action, action_hash, risk_summary, created_at, expires_at) "
                 "VALUES (?,?,?,?,?,?,?)",

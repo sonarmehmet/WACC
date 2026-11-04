@@ -4,10 +4,10 @@ Default is deny. classify() never runs anything; it turns a raw action into a De
 ALLOW (run automatically, audited), APPROVAL (user must approve this exact action), or DENY.
 """
 
-import fnmatch
 import hashlib
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from ipaddress import ip_address
 from pathlib import Path
@@ -27,27 +27,69 @@ MAX_WRITE_BYTES = 2_000_000
 MAX_ARGS = 64
 MAX_ARG_LEN = 2000
 
-# Writing here weakens the guard rails themselves, so it always needs the user's approval.
-PROTECTED_WRITE_PREFIXES = (
-    "backend/wacc_backend/", "hub/wacc_hub/", "web/serve.py", "desktop/wacc_desktop/client.py", ".github/",
-    "docs/EXECUTION_SECURITY.md", ".gitignore", ".gitattributes", ".claude/", "scripts/", "start_wacc", "launch.py",
-)
-# Files that run code or pull in code when someone starts, tests or installs the project, wherever they are.
-PROTECTED_WRITE_NAMES = (
-    "conftest.py", "sitecustomize.py", "usercustomize.py", "*.pth", "pytest.ini", "tox.ini", "setup.py", "setup.cfg",
-    "pyproject.toml", "requirements*.txt", "package.json", "package-lock.json", "pubspec.yaml", "pubspec.lock",
-    "*.bat", "*.cmd", "*.ps1", "*.sh", "*.vbs", ".gitattributes", ".gitmodules", "Makefile",
-)
+# Writing here weakens the guard rails themselves or changes what runs at the next start (launchers,
+# dependency lists, modules that shadow the standard library), so it always needs the user's approval.
+PROTECTED_WRITE_PREFIXES = ("backend/wacc_backend/execution/", "docs/EXECUTION_SECURITY.md", ".gitignore", ".gitattributes",
+                            ".github/", "scripts/", "backend/wacc_backend/security.py", "backend/wacc_backend/app.py",
+                            "backend/wacc_backend/config.py", "backend/wacc_backend/accounts.py",
+                            "hub/wacc_hub/auth.py", "hub/wacc_hub/api.py", "web/serve.py", "desktop/wacc_desktop/__main__.py")
+PROTECTED_WRITE_SUFFIXES = (".bat", ".cmd", ".ps1", ".sh", ".pth", ".vbs", ".lnk", ".exe", ".dll")
+PROTECTED_WRITE_NAMES = ("requirements.txt", "pubspec.yaml", "pubspec.lock", "pyproject.toml", "setup.py", "setup.cfg",
+                         "conftest.py", "sitecustomize.py", "usercustomize.py", "package.json", "package-lock.json",
+                         "analysis_options.yaml", "tox.ini", "pytest.ini")
+# Folders that a launcher puts first on Python's import path: a new top-level .py there can shadow json, http, fastapi...
+IMPORT_ROOT_DIRS = ("hub", "backend", "web", "desktop", "scripts")
+
+
+def _protected_write(rel: str) -> bool:
+    low = rel.lower()
+    if any(low == p.rstrip("/").lower() or low.startswith(p.lower()) for p in PROTECTED_WRITE_PREFIXES):
+        return True
+    name = low.rsplit("/", 1)[-1]
+    if low.endswith(PROTECTED_WRITE_SUFFIXES) or name in PROTECTED_WRITE_NAMES:
+        return True
+    parts = low.split("/")
+    return name.endswith(".py") and (len(parts) == 1 or (len(parts) == 2 and parts[0] in IMPORT_ROOT_DIRS))
 
 GIT_AUTO = {"status", "log", "diff", "show", "add", "commit", "branch", "switch", "rev-parse", "ls-files", "fetch"}
 GIT_DESTRUCTIVE = {"reset", "clean", "checkout", "restore", "rebase", "stash", "rm", "mv", "revert", "cherry-pick"}
 GIT_FORBIDDEN_FLAGS = ("--upload-pack", "--receive-pack", "--exec", "--config", "-c", "--git-dir", "--work-tree")
-# Long options that run programs or write/read outside the project. git accepts ANY unambiguous prefix of a
-# long option (--upload-p=...), so an argument is refused when its name is a prefix of one of these.
-GIT_DANGEROUS_LONG = ("--upload-pack", "--receive-pack", "--exec", "--exec-path", "--config", "--git-dir",
-                      "--work-tree", "--output", "--ext-diff", "--textconv", "--no-index", "--open-files-in-pager",
-                      "--paginate", "--namespace", "--super-prefix", "--template", "--separate-git-dir",
-                      "--output-directory", "--format-patch", "--attr-source", "--config-env")
+# Options that write outside the project, read arbitrary files, run helpers, or discard work. Git accepts any
+# unambiguous prefix of a long option (--forc, --out) and clusters short ones (-fA), so matching is by prefix/char.
+GIT_DENIED_LONG = ("--output", "--open-files-in-pager", "--ext-diff", "--textconv", "--upload-pack", "--receive-pack",
+                   "--exec", "--exec-path", "--config", "--config-env", "--git-dir", "--work-tree", "--namespace",
+                   "--super-prefix", "--template", "--separate-git-dir")
+GIT_APPROVAL_LONG = ("--force", "--force-with-lease", "--no-index", "--discard-changes", "--force-create", "--orphan",
+                     "--ignore-removal", "--delete", "--mirror")
+GIT_DENIED_SHORT = "O"
+GIT_APPROVAL_SHORT = "fCB"
+
+
+def _git_option_risk(args, sub: str = "") -> Optional[str]:
+    """'deny', 'approval' or None for the options in a git argument list (stops at --)."""
+    risk = None
+    skip = False
+    for a in args:
+        if skip:
+            skip = False
+            continue
+        if a == "--":
+            break
+        if a in ("-m", "--message") and sub in ("commit", "tag"):
+            skip = True  # the free text of a commit/tag message; for other commands -m is just a flag
+            continue
+        if a.startswith("--"):
+            name = a.split("=", 1)[0]
+            if len(name) >= 3 and any(d.startswith(name) for d in GIT_DENIED_LONG):
+                return "deny"
+            if len(name) >= 3 and any(d.startswith(name) for d in GIT_APPROVAL_LONG):
+                risk = "approval"
+        elif a.startswith("-") and len(a) > 1 and not a.startswith("-m"):
+            if any(ch in GIT_DENIED_SHORT for ch in a[1:]):
+                return "deny"
+            if any(ch in GIT_APPROVAL_SHORT for ch in a[1:]):
+                risk = "approval"
+    return risk
 FORCE_FLAGS = ("--force", "-f", "--force-with-lease", "--mirror", "--delete")
 PROTECTED_BRANCHES = ("main", "master")
 
@@ -68,9 +110,9 @@ INSTALL_PREFIXES = {
 # These run project code (test files, build scripts), so an agent could write a file and then run it with
 # the user's rights. They need approval unless the user opts in with WACC_EXEC_AUTO_CODE=1.
 CODE_RUN_PREFIXES = {
-    "python": [["-m", "pytest"], ["-m", "unittest"]],
-    "flutter": [["test"], ["build", "apk"], ["build", "appbundle"], ["build", "web"], ["build", "windows"]],
-    "dart": [["test"]],
+    "python": [["-m", "pytest"], ["-m", "unittest"], ["-m", "compileall"]],
+    "flutter": [["analyze"], ["test"], ["build", "apk"], ["build", "appbundle"], ["build", "web"], ["build", "windows"]],
+    "dart": [["analyze"], ["test"]],
 }
 ALIASES = {"python3": "python", "py": "python", "pip3": "pip"}
 KNOWN_EXECUTABLES = set(AUTO_PREFIXES) | set(INSTALL_PREFIXES) | {"git"}
@@ -95,6 +137,26 @@ class Decision:
         return hashlib.sha256(blob.encode()).hexdigest()
 
 
+_PLAIN_PACKAGE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.\-]*(\[[A-Za-z0-9_,\-]+\])?((==|>=|<=|~=|!=|<|>)[A-Za-z0-9_.*+\-]+)?")
+_SAFE_INSTALL_FLAGS = ("--upgrade", "-U", "--quiet", "-q", "--no-input", "--disable-pip-version-check")
+
+
+def plain_package_install(normalized: dict) -> bool:
+    """True when an install only names packages from the default index (name, optional version). Only those may
+    skip a second approval: 'pip install .', '-r file', URLs, other indexes or editable installs run content that
+    can change after the user approved the identical command line."""
+    argv = normalized.get("argv") or []
+    if argv[:4] == ["python", "-m", "pip", "install"]:
+        rest = argv[4:]
+    elif argv[:2] == ["pip", "install"]:
+        rest = argv[2:]
+    else:
+        return False  # flutter/dart/npm installs always ask again
+    names = [a for a in rest if not a.startswith("-")]
+    flags = [a for a in rest if a.startswith("-")]
+    return bool(names) and all(_PLAIN_PACKAGE.fullmatch(a) for a in names) and all(f in _SAFE_INSTALL_FLAGS for f in flags)
+
+
 def _deny(cls, reason, summary="", normalized=None):
     return Decision(cls, DENY, reason, summary, normalized or {})
 
@@ -114,6 +176,32 @@ def _path_like(arg: str) -> bool:
     if arg.startswith("-") or "://" in arg:
         return False
     return "/" in arg or "\\" in arg or arg.startswith(".") or (len(arg) > 1 and arg[1] == ":")
+
+
+def _path_candidates(arg: str, exe: str) -> List[str]:
+    """Strings in one argument that may name a file: the argument, an option value (--out=PATH) and,
+    for git, every part after a colon (REV:PATH, :0:PATH, :(top)PATH). Bare names count for git because
+    git treats them as pathspecs."""
+    out = []
+    value = arg
+    if arg.startswith("-"):
+        if "=" not in arg:
+            return out
+        value = arg.split("=", 1)[1]
+        if not value:
+            return out
+    if _path_like(value) or exe == "git":
+        out.append(value)
+    if exe == "git" and "://" not in value:
+        drive = len(value) > 1 and value[1] == ":"
+        for i, ch in enumerate(value):
+            if ch == ":" and not (drive and i == 1):
+                tail = value[i + 1:]
+                if tail.startswith("("):  # pathspec magic such as :(top)path
+                    tail = tail.split(")", 1)[-1]
+                if tail:
+                    out.append(tail)
+    return out
 
 
 def classify(action: dict, roots: Iterable[Path], network_allowlist: Iterable[str] = DEFAULT_NETWORK_ALLOWLIST,
@@ -151,21 +239,13 @@ def _classify_path_action(kind, action, roots) -> Decision:
             return _deny(WRITE_PROJECT, f"content exceeds {MAX_WRITE_BYTES} bytes", f"write_file {rel}")
         norm["sha256"] = hashlib.sha256(content.encode("utf-8")).hexdigest()
         norm["bytes"] = len(content.encode("utf-8"))
-        if _is_protected_write(rel):
-            return Decision(SYSTEM_CHANGE, APPROVAL, "This file defines the security rules", f"write_file {rel}", norm,
+        if _protected_write(rel):
+            return Decision(SYSTEM_CHANGE, APPROVAL, "This file defines the security rules or what runs at the next start", f"write_file {rel}", norm,
                             {"content": content})
         return Decision(WRITE_PROJECT, ALLOW, "Write inside the project", f"write_file {rel} ({norm['bytes']} bytes)", norm,
                         {"content": content})
     return Decision(DELETE, APPROVAL, "Deleting needs approval; the file is moved to _to_delete/, not erased",
                     f"delete_path {rel}", norm)
-
-
-def _is_protected_write(rel: str) -> bool:
-    low = rel.lower()  # Windows/macOS paths are not case sensitive
-    name = low.rsplit("/", 1)[-1]
-    if any(low == p.rstrip("/").lower() or low.startswith(p.lower()) for p in PROTECTED_WRITE_PREFIXES):
-        return True
-    return any(fnmatch.fnmatch(name, pat.lower()) for pat in PROTECTED_WRITE_NAMES)
 
 
 def _relative(path: Path, roots) -> str:
@@ -199,19 +279,13 @@ def _classify_run(action, roots, requested_by, auto_run_code: bool = False) -> D
             skip = False
             continue
         if a in ("-m", "--message") and exe == "git" and args[:1] and args[0] in ("commit", "tag"):
-            skip = True  # free text of a commit/tag message, not a path
+            skip = True
             continue
-        if a.startswith("--") and "=" in a:  # --output=/outside, --file=../x: check the value like a path argument
-            value = a.split("=", 1)[1]
-            if _path_like(value):
-                try:
-                    resolve_in_roots(value, roots, cwd=cwd)
-                except PathDenied as exc:
-                    cls = SECRET_EXPORT if exc.code in ("SECRET_FILE", "DATA_DIR") else PERSONAL_FILES
-                    return _deny(cls, f"Argument {a!r}: {exc.message}", summary, norm)
-        if _path_like(a) and not (exe == "python" and args[:1] == ["-m"] and a == args[1]):
+        for cand in _path_candidates(a, exe):
+            if exe == "python" and args[:1] == ["-m"] and a == args[1]:
+                break
             try:
-                resolve_in_roots(a, roots, cwd=cwd)
+                resolve_in_roots(cand, roots, cwd=cwd)
             except PathDenied as exc:
                 cls = SECRET_EXPORT if exc.code in ("SECRET_FILE", "DATA_DIR") else PERSONAL_FILES
                 return _deny(cls, f"Argument {a!r}: {exc.message}", summary, norm)
@@ -220,9 +294,6 @@ def _classify_run(action, roots, requested_by, auto_run_code: bool = False) -> D
         return _classify_git(args, norm, summary, requested_by)
     for prefix in INSTALL_PREFIXES.get(exe, []):
         if _is_prefix(args, prefix):
-            # The approval covers what will be installed, not just the words of the command: bind it to the
-            # content of the manifests/requirement files/local packages it reads (they are agent-writable).
-            norm["inputs_sha256"] = _install_fingerprint(exe, args, cwd, roots)
             return Decision(INSTALL, APPROVAL, "Installing packages needs approval (once per package/version)", summary, norm)
     if not auto_run_code:
         for prefix in CODE_RUN_PREFIXES.get(exe, []):
@@ -236,66 +307,15 @@ def _classify_run(action, roots, requested_by, auto_run_code: bool = False) -> D
     return Decision(SYSTEM_CHANGE, APPROVAL, "Unknown program; unclassified actions count as system changes", summary, norm)
 
 
-MANIFESTS = {"pip": ("requirements.txt", "pyproject.toml", "setup.py", "setup.cfg"),
-             "python": ("requirements.txt", "pyproject.toml", "setup.py", "setup.cfg"),
-             "npm": ("package.json", "package-lock.json", "npm-shrinkwrap.json"),
-             "flutter": ("pubspec.yaml", "pubspec.lock"), "dart": ("pubspec.yaml", "pubspec.lock")}
-_FINGERPRINT_LIMIT = 5_000_000
-
-
-def _install_fingerprint(exe, args, cwd: Path, roots) -> str:
-    """SHA-256 over every file an install reads: manifests in cwd, -r/-c files, and local directories given as
-    packages (their whole tree, capped). Unreadable or oversized input changes the hash, never hides it."""
-    files = []
-    for name in MANIFESTS.get(exe, ()):
-        files.append(Path(cwd) / name)
-    take_next = False
-    for a in args:
-        if take_next:
-            files.append(Path(cwd) / a)
-            take_next = False
-        elif a in ("-r", "--requirement", "-c", "--constraint", "-e", "--editable"):
-            take_next = True
-        elif a.startswith(("--requirement=", "--constraint=")):
-            files.append(Path(cwd) / a.split("=", 1)[1])
-        elif a.startswith("-"):
-            continue
-        elif a == "." or a.startswith(("./", "../", ".\\")) or "/" in a or "\\" in a:
-            files.append(Path(cwd) / a)
-    h, total = hashlib.sha256(), 0
-    for f in sorted(set(files), key=str):
-        try:
-            targets = sorted(p for p in f.rglob("*") if p.is_file() and ".git" not in p.parts) if f.is_dir() else [f]
-        except OSError:
-            targets = []
-        for t in targets:
-            try:
-                data = t.read_bytes()
-            except OSError:
-                data = b"<unreadable>"
-            total += len(data)
-            h.update(str(t).encode() + b"\0" + hashlib.sha256(data).digest())
-            if total > _FINGERPRINT_LIMIT:
-                h.update(b"<too large>" + os.urandom(8))  # never matches a previous approval
-                return h.hexdigest()
-    return h.hexdigest()
-
-
 def _classify_git(args, norm, summary, requested_by) -> Decision:
     if not args or args[0].startswith("-"):
         return Decision(SYSTEM_CHANGE, APPROVAL, "git global options are not allowed automatically", summary, norm)
     if any(a in GIT_FORBIDDEN_FLAGS or a.startswith(("--upload-pack", "--receive-pack", "--exec=", "--config=")) for a in args):
         return _deny(SYSTEM_CHANGE, "This git option can run arbitrary programs", summary, norm)
-    for a in args[1:]:
-        if a == "--":
-            break
-        if a.startswith("--") and len(a) > 2:
-            name = a.split("=", 1)[0]
-            if any(bad.startswith(name) for bad in GIT_DANGEROUS_LONG):  # includes abbreviations like --upload-p
-                return _deny(SYSTEM_CHANGE, "This git option can run programs or write outside the project", summary, norm)
-        elif a.startswith("-O") or a.startswith("-o") and args[0] != "push":
-            return _deny(SYSTEM_CHANGE, "This git option reads or writes an arbitrary file", summary, norm)
     sub = args[0]
+    risk = _git_option_risk(args[1:], args[0])
+    if risk == "deny":
+        return _deny(SYSTEM_CHANGE, "This git option writes files, reads arbitrary files or runs helpers", summary, norm)
     if sub == "push":
         if any(a in FORCE_FLAGS or (a.startswith("+") and len(a) > 1) for a in args[1:]):
             return _deny(PUBLISH, "Force/delete pushes are never allowed", summary, norm)
@@ -304,9 +324,11 @@ def _classify_git(args, norm, summary, requested_by) -> Decision:
         return Decision(PUBLISH, APPROVAL, "Publishing needs approval every time", summary, norm)
     if sub in GIT_DESTRUCTIVE or (sub == "branch" and any(a in ("-D", "-d", "--delete", "-m", "-M") for a in args)):
         return Decision(DELETE, APPROVAL, "Can discard work; needs approval each time", summary, norm)
-    if sub == "fetch" and any(":" in a or "@" in a for a in args[1:] if not a.startswith("-")):
-        return Decision(NETWORK, APPROVAL, "Fetching from a URL/other location needs approval", summary, norm)
     if sub in GIT_AUTO:
+        if risk == "approval":
+            return Decision(DELETE, APPROVAL, "Force / no-index / discard options need approval each time", summary, norm)
+        if sub == "fetch" and any(not a.startswith("-") and not re.fullmatch(r"[A-Za-z0-9_.-]{1,40}", a) for a in args[1:]):
+            return Decision(NETWORK, APPROVAL, "Fetching from a URL or path needs approval (only remote names are automatic)", summary, norm)
         if sub == "commit" and any(a in ("--amend", "--no-verify") for a in args):
             return Decision(SYSTEM_CHANGE, APPROVAL, "Rewriting history or skipping hooks needs approval", summary, norm)
         return Decision(RUN_ALLOWLIST, ALLOW, "Allowlisted git command", summary, norm)

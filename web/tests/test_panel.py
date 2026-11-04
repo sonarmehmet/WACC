@@ -298,7 +298,7 @@ class BackendProxyTests(unittest.TestCase):
         # seed through the real backend API
         cls.direct("POST", "/projects", {"name": "Panel Project", "description": "seed"})
         cls.direct("POST", "/jobs", {"kind": "demo", "title": "<b>seed job</b>"})
-        cls.direct("POST", "/agents", {"name": "worker1", "role": "builder", "capabilities": ["build"]})
+        cls.direct("POST", "/agents", {"name": "worker1", "role": "builder", "capabilities": ["build"]}, token=cls.USER_TOKEN)
 
         cls.panel = serve.create_server(0, "http://127.0.0.1:%d" % free_port(), cls.backend_url)
         cls.port = cls.panel.server_address[1]
