@@ -22,7 +22,7 @@ from .storage import Storage, StorageError
 STATUS_MAP = {"NOT_FOUND": 404, "DUPLICATE": 409, "FORBIDDEN": 403, "BAD_STATE": 409,
               "PROJECT_ARCHIVED": 409, "DISABLED": 409, "BUDGET_EXCEEDED": 429, "EMERGENCY_STOP": 423,
               "NOT_APPROVED": 403, "HASH_MISMATCH": 403,
-              "NO_PROVIDER": 503, "ALL_FAILED": 502, "NOT_REMOVABLE": 409, "TOO_MANY": 409}
+              "NO_PROVIDER": 503, "ALL_FAILED": 502, "NOT_REMOVABLE": 409, "TOO_MANY": 409, "TOO_MANY_PENDING": 429}
 
 
 class ProjectIn(BaseModel):
@@ -116,6 +116,35 @@ class MemoryIn(BaseModel):
     project_id: Optional[int] = None
     source: str = ""
 
+MAX_REQUEST_BYTES = 4_000_000  # write_file content may be 2 MB (JSON-escaped it can grow)
+
+
+class BodyLimit:
+    """Refuse oversized request bodies before any parsing (no server-side limit exists by default), so one
+    agent token cannot fill the disk or memory with a single request. Chunked uploads are not accepted."""
+
+    def __init__(self, app, limit: int):
+        self.app, self.limit = app, limit
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            headers = dict(scope.get("headers") or [])
+            length = headers.get(b"content-length")
+            problem = None
+            if b"transfer-encoding" in headers:
+                problem = (411, "Chunked request bodies are not accepted")
+            elif length is not None and not length.isdigit():
+                problem = (400, "Bad Content-Length")
+            elif length is not None and int(length) > self.limit:
+                problem = (413, "Request body too large")
+            if problem:
+                body = ('{"detail": "%s"}' % problem[1]).encode()
+                await send({"type": "http.response.start", "status": problem[0],
+                            "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]})
+                await send({"type": "http.response.body", "body": body})
+                return
+        await self.app(scope, receive, send)
+
 
 def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] = None,
                token: Optional[str] = None, providers: Optional[List[Provider]] = None,
@@ -141,6 +170,7 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
     execution = ExecutionService(storage, settings.exec_roots, executor or RealExecutor(settings.exec_roots), stop, approvals,
                                 auto_run_code=settings.exec_auto_code)
     app = FastAPI(title="WACC Backend", version=__version__)
+    app.add_middleware(BodyLimit, limit=MAX_REQUEST_BYTES)
     app.state.engine, app.state.orchestrator, app.state.execution = engine, orchestrator, execution
 
     def caller(x_wacc_token: str = Header(default="")) -> str:

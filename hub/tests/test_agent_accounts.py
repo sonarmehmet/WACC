@@ -175,3 +175,32 @@ class AgentAccountApiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(HAVE_API, "fastapi/httpx not installed")
+class RequestSizeTests(unittest.TestCase):
+    def test_oversized_bodies_are_refused_before_parsing(self):
+        from wacc_hub.api import MAX_REQUEST_BYTES, create_app
+        with tempfile.TemporaryDirectory() as tmp:
+            tokens = {a: f"tok-{a}" for a in ("claude1", "claude2", "claude3", "gemini", "user")}
+            client = TestClient(create_app(Hub(os.path.join(tmp, "h.db")), tokens, token_path=Path(tmp) / "t.json"))
+            h = {"X-WACC-Token": "tok-claude2"}
+            big = {"title": "x", "decision": "y" * (MAX_REQUEST_BYTES + 10)}
+            self.assertEqual(client.post("/decisions", headers=h, json=big).status_code, 413)
+            small = {"title": "x", "decision": "y"}
+            self.assertEqual(client.post("/decisions", headers=h, json=small).status_code, 200)
+
+
+class LockFloodTests(unittest.TestCase):
+    def test_one_agent_cannot_lock_the_whole_tree(self):
+        from wacc_hub.service import MAX_LOCKS_PER_AGENT
+        with tempfile.TemporaryDirectory() as tmp:
+            hub = Hub(os.path.join(tmp, "h.db"))
+            hub.init() if hasattr(hub, "init") else None
+            for i in range(MAX_LOCKS_PER_AGENT):
+                hub.acquire_lock("claude2", f"dir{i}/file.py")
+            with self.assertRaises(HubError) as ctx:
+                hub.acquire_lock("claude2", "one/more.py")
+            self.assertEqual(ctx.exception.code, "TOO_MANY_LOCKS")
+            hub.acquire_lock("claude2", "dir0/file.py")  # renewing a lock it already holds is fine
+            hub.acquire_lock("claude3", "other/file.py")  # other agents are unaffected

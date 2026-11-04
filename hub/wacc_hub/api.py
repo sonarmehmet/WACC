@@ -15,9 +15,38 @@ from .service import Hub, HubError
 
 STATUS_MAP = {"DUPLICATE": 409, "AGENT_DISABLED": 403, "NOT_REMOVABLE": 409, "BAD_NAME": 400, "BAD_KIND": 400, "BAD_PROVIDER": 400, 
     "UNKNOWN_AGENT": 404, "UNKNOWN_TASK": 404, "UNKNOWN_MESSAGE": 404,
-    "FORBIDDEN": 403, "EMERGENCY_STOP": 423, "LOCKED": 409, "STALE_LOCK": 409,
+    "FORBIDDEN": 403, "EMERGENCY_STOP": 423, "LOCKED": 409, "STALE_LOCK": 409, "TOO_MANY_LOCKS": 429,
     "BAD_STATE": 409, "DEPENDENCY_OPEN": 409,
 }
+
+MAX_REQUEST_BYTES = 1_000_000
+
+
+class BodyLimit:
+    """Refuse oversized request bodies before any parsing (no server-side limit exists by default), so one
+    agent token cannot fill the disk or memory with a single request. Chunked uploads are not accepted."""
+
+    def __init__(self, app, limit: int):
+        self.app, self.limit = app, limit
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            headers = dict(scope.get("headers") or [])
+            length = headers.get(b"content-length")
+            problem = None
+            if b"transfer-encoding" in headers:
+                problem = (411, "Chunked request bodies are not accepted")
+            elif length is not None and not length.isdigit():
+                problem = (400, "Bad Content-Length")
+            elif length is not None and int(length) > self.limit:
+                problem = (413, "Request body too large")
+            if problem:
+                body = ('{"detail": "%s"}' % problem[1]).encode()
+                await send({"type": "http.response.start", "status": problem[0],
+                            "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]})
+                await send({"type": "http.response.body", "body": body})
+                return
+        await self.app(scope, receive, send)
 
 
 class SendIn(BaseModel):
@@ -121,6 +150,7 @@ def create_app(hub: Optional[Hub] = None, tokens: Optional[dict] = None, token_p
     persist = token_path is not None or tokens is None  # tests pass an in-memory dict and skip the file
     tokens = tokens or load_or_create_tokens(token_path)
     app = FastAPI(title="WACC Communication Hub", version=__version__)
+    app.add_middleware(BodyLimit, limit=MAX_REQUEST_BYTES)
 
     def actor(x_wacc_token: str = Header(default="")):
         who = resolve_actor(tokens, x_wacc_token)
