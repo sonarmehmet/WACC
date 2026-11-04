@@ -460,8 +460,13 @@ class Hub:
     def acquire_lock(self, agent, path, task_id=None, ttl=DEFAULT_LOCK_TTL, takeover=False):
         if not self._is_worker(agent):
             raise HubError("FORBIDDEN", "Only worker agents can hold locks")
+        if not isinstance(path, str) or len(path) > 300:
+            raise HubError("BAD_PATH", "Lock path must be a string of at most 300 characters")
         path = normalize_path(path)
-        ttl = max(30, min(int(ttl), MAX_LOCK_TTL))
+        try:
+            ttl = max(30, min(int(ttl), MAX_LOCK_TTL))
+        except (ValueError, OverflowError, TypeError):  # NaN / inf / garbage
+            raise HubError("BAD_TTL", "ttl must be a number of seconds")
         with self.tx() as conn:
             self._guard(conn, agent)
             now = db.utcnow()

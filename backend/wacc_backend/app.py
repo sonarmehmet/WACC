@@ -4,6 +4,8 @@ import os
 from typing import List, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from . import __version__
@@ -170,6 +172,11 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
     execution = ExecutionService(storage, settings.exec_roots, executor or RealExecutor(settings.exec_roots), stop, approvals,
                                 auto_run_code=settings.exec_auto_code)
     app = FastAPI(title="WACC Backend", version=__version__)
+
+    @app.exception_handler(RequestValidationError)
+    async def _bad_request(request, exc):  # never echo the input back: NaN/inf in it made the default handler crash (500)
+        errors = [{"loc": [str(x) for x in e.get("loc", ())], "msg": str(e.get("msg", "invalid"))} for e in exc.errors()]
+        return JSONResponse(status_code=422, content={"detail": errors})
     app.add_middleware(BodyLimit, limit=MAX_REQUEST_BYTES)
     app.state.engine, app.state.orchestrator, app.state.execution = engine, orchestrator, execution
 

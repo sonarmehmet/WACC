@@ -16,6 +16,15 @@ Yöntem: gerçek Hub + Backend (RealExecutor, geçici proje köküyle) + web pan
 | 9 | Düşük | `limit=-1` SQLite'ta "sınırsız" demek: Hub `/inbox /sent /feed /audit` ve Backend listeleri tüm tabloyu döküyordu | En az 1'e sıkıştırılır |
 | 10 | Düşük | Web proxy: negatif `Content-Length` işleyici istisnası (bağlantı sessizce kopar) | Temiz 400 |
 
+## Tur 2
+| # | Önem | Açık | Düzeltme |
+|---|---|---|---|
+| 11 | Orta | `POST /ai/budget {"usd": NaN}`: NaN `<`/`>` karşılaştırmalarını geçip kaydediliyordu → günlük bütçe sınırı **sessizce devre dışı** (kullanıcı tokenı gerekir) | `math.isfinite` + bool reddi |
+| 12 | Düşük | JSON'da `NaN`/`Infinity` (örn. `/locks ttl`) FastAPI'nin doğrulama hatası yanıtını çökertip HTTP 500 veriyordu (Hub + Backend) | Girdiyi yansıtmayan 422 işleyicisi |
+| 13 | Düşük | Kilit yolu sınırsız uzunlukta, `ttl` NaN → 500 | 300 karakter sınırı, `BAD_TTL` |
+
+Tur 2'de dayananlar: 30 paralel istekle aynı onayı tüketme (yalnızca 1 çalışır), aynı anda onay+ret (tek karar), panelde 8 XSS yükü × 7 sekme (hiçbiri çalışmadı, metin düz yazı), ajan tokeniyle `/engine/*`, `/agents*` yazmaları, kimlik taklidi (`agent` alanı), `limit=-1/abc/10^20`, `cwd=../`, `[[[…` iç içe gövde.
+
 ## Denenen ve dayanan saldırılar
 Tokensız her rota (Hub + Backend OpenAPI'deki tümü) 401; ajan tokeni kullanıcı-yalnız rotalarda 403 (onay/ret/devam/AI hesabı/bütçe); ortak token onaylayamaz; `/exec` gövdesindeki `agent` alanıyla kimlik taklidi işe yaramıyor; onay başka eyleme, başka ajana, ikinci kez kullanılamıyor (HASH_MISMATCH/FORBIDDEN/NOT_APPROVED); `../`, mutlak yol, sembolik bağ, `.git`, `data/`, `.env`, NUL, 2 MB+ içerik reddi; Hub'a SQL enjeksiyon dizeleri; ajan Hub'da ajan ekleyemez/kapatamaz/silemez, acil durdurmayı kaldıramaz; web panel: yabancı `Host`, `Origin: null`, çapraz kaynak POST, `..`/`%2e%2e`/çift kodlama/ters eğik çizgi, `/backend/../`, kodlanmış `/`, CRLF enjeksiyonu, `//` yetki bölümü, TE/CL kaçakçılığı, devasa `Content-Length`, TRACE/OPTIONS (CORS başlığı yok).
 

@@ -34,6 +34,11 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.get("/inbox").status_code, 401)
         self.assertEqual(self.client.get("/inbox", headers={"X-WACC-Token": "bad"}).status_code, 401)
 
+    def test_lock_rejects_nan_ttl_and_giant_paths_cleanly(self):
+        for raw in ('{"path":"a.txt","ttl":NaN}', '{"path":"a.txt","ttl":1e999}', '{"path":"%s","ttl":60}' % ("a" * 5000)):
+            r = self.client.post("/locks", headers={**self.h("claude2"), "Content-Type": "application/json"}, content=raw)
+            self.assertIn(r.status_code, (400, 422), raw[:30])  # a clean refusal, never a 500
+
     def test_negative_limits_do_not_mean_unlimited(self):
         for i in range(3):
             self.client.post("/messages", headers=self.h("claude2"),

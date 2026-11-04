@@ -10,6 +10,7 @@ talks to language models):
 """
 
 import json
+import math
 import re
 import urllib.error
 import urllib.request
@@ -233,7 +234,8 @@ class Orchestrator:
             conn.close()
 
     def set_budget(self, usd: float) -> float:
-        if not isinstance(usd, (int, float)) or usd < 0 or usd > 1000:
+        if (isinstance(usd, bool) or not isinstance(usd, (int, float)) or not math.isfinite(usd)  # NaN passes < and >
+                or usd < 0 or usd > 1000):
             raise OrchestratorError("BAD_BUDGET", "Budget must be between 0 and 1000 USD")
         with self.storage.tx() as conn:
             conn.execute("INSERT INTO engine_flags(key, value) VALUES ('daily_budget_usd', ?) "

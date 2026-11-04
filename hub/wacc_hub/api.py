@@ -6,6 +6,8 @@ The token decides the acting agent, so an agent can never impersonate another on
 from typing import List, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from . import __version__
@@ -16,7 +18,7 @@ from .service import Hub, HubError
 STATUS_MAP = {"DUPLICATE": 409, "AGENT_DISABLED": 403, "NOT_REMOVABLE": 409, "BAD_NAME": 400, "BAD_KIND": 400, "BAD_PROVIDER": 400, 
     "UNKNOWN_AGENT": 404, "UNKNOWN_TASK": 404, "UNKNOWN_MESSAGE": 404,
     "FORBIDDEN": 403, "EMERGENCY_STOP": 423, "LOCKED": 409, "STALE_LOCK": 409, "TOO_MANY_LOCKS": 429,
-    "BAD_STATE": 409, "DEPENDENCY_OPEN": 409,
+    "BAD_STATE": 409, "BAD_TTL": 400, "BAD_PATH": 400, "DEPENDENCY_OPEN": 409,
 }
 
 MAX_REQUEST_BYTES = 1_000_000
@@ -150,6 +152,11 @@ def create_app(hub: Optional[Hub] = None, tokens: Optional[dict] = None, token_p
     persist = token_path is not None or tokens is None  # tests pass an in-memory dict and skip the file
     tokens = tokens or load_or_create_tokens(token_path)
     app = FastAPI(title="WACC Communication Hub", version=__version__)
+
+    @app.exception_handler(RequestValidationError)
+    async def _bad_request(request, exc):  # never echo the input back: NaN/inf in it made the default handler crash (500)
+        errors = [{"loc": [str(x) for x in e.get("loc", ())], "msg": str(e.get("msg", "invalid"))} for e in exc.errors()]
+        return JSONResponse(status_code=422, content={"detail": errors})
     app.add_middleware(BodyLimit, limit=MAX_REQUEST_BYTES)
 
     def actor(x_wacc_token: str = Header(default="")):

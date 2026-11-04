@@ -93,7 +93,7 @@ class OrchestratorTests(Base):
 
     def test_set_budget_validation(self):
         o = self.make()
-        for bad in (-1, 5000, "x"):
+        for bad in (-1, 5000, "x", float("nan"), float("inf"), True):  # NaN would switch the limit off
             self.assertEqual(self.code(o.set_budget, bad), "BAD_BUDGET")
         self.assertEqual(o.set_budget(2.5), 2.5)
         self.assertEqual(o.get_budget(), 2.5)

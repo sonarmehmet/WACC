@@ -34,6 +34,12 @@ class AppTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_nan_and_inf_in_a_body_get_a_clean_422_not_a_crash(self):
+        for path, raw in (("/ai/budget", '{"usd":NaN}'), ("/exec", '{"agent":"claude2","action":{"type":"list_dir","path":NaN}}'),
+                          ("/memory", '{"content":"x","project_id":Infinity}')):
+            r = self.client.post(path, headers={**self.u, "Content-Type": "application/json"}, content=raw)
+            self.assertLess(r.status_code, 500, path)
+
     def test_health_public_rest_protected(self):
         self.assertEqual(self.client.get("/health").json()["schema_version"], 4)
         self.assertEqual(self.client.get("/projects").status_code, 401)
