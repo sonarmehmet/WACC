@@ -40,8 +40,9 @@ def register_builtin_handlers(engine: TaskEngine, orchestrator, execution, data_
         p = job.get("payload") or {}
         if not isinstance(p, dict) or not isinstance(p.get("action"), dict):
             raise PermanentJobError("exec.run needs a payload with an 'action' object")
+        agent = p.get("_agent") if isinstance(p.get("_agent"), str) and p.get("_agent") else "worker"  # set by POST /jobs
         try:
-            result = execution.submit("worker", p["action"], p.get("approval_id"))
+            result = execution.submit(agent, p["action"], p.get("approval_id"))
         except StorageError as exc:  # bad/used approval, emergency stop: retrying cannot help
             raise PermanentJobError(f"{exc.code}: {exc.message}")
         status = result.get("status")

@@ -248,8 +248,16 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
 
     # ------------------------------------------------------------- task engine
     @app.post("/jobs", status_code=201, dependencies=[Depends(auth)])
-    def enqueue(body: JobIn):
-        return run(engine.enqueue, body.kind, body.title, body.payload, body.project_id,
+    def enqueue(body: JobIn, who: str = Depends(caller)):
+        payload = body.payload
+        if body.kind == "exec.run":
+            # The Worker runs this through the execution policy. It must run as the one who asked (approvals, audit
+            # and per-agent rules depend on that), and the read-only shared token may not start actions at all.
+            if who == "shared":
+                raise HTTPException(status_code=403, detail={"code": "FORBIDDEN", "message":
+                                    "The shared token is read-only here; use your own agent token"})
+            payload = {**payload, "_agent": who}  # always overwritten: a client-supplied value is never trusted
+        return run(engine.enqueue, body.kind, body.title, payload, body.project_id,
                    body.priority, body.max_attempts, body.delay_seconds)
 
     @app.get("/jobs", dependencies=[Depends(auth)])

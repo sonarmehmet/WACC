@@ -34,6 +34,20 @@ class AppTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_exec_jobs_run_as_the_enqueuing_agent_and_never_for_the_shared_token(self):
+        job = {"kind": "exec.run", "title": "x", "payload": {"action": {"type": "list_dir", "path": "."}}}
+        r = self.client.post("/jobs", headers=self.h, json=job)  # the read-only shared token
+        self.assertEqual(r.status_code, 403)
+        spoof = {**job, "payload": {**job["payload"], "_agent": "claude1"}}  # a client-supplied identity is overwritten
+        r = self.client.post("/jobs", headers=self.c2, json=spoof)
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.json()["payload"]["_agent"], "claude2")
+        r = self.client.post("/jobs", headers=self.u, json=job)
+        self.assertEqual(r.json()["payload"]["_agent"], "user")
+        # other job kinds keep working for the shared token (it only lost the right to start actions)
+        ok = self.client.post("/jobs", headers=self.h, json={"kind": "ai.complete", "title": "t", "payload": {"prompt": "p"}})
+        self.assertEqual(ok.status_code, 201)
+
     def test_nan_and_inf_in_a_body_get_a_clean_422_not_a_crash(self):
         for path, raw in (("/ai/budget", '{"usd":NaN}'), ("/exec", '{"agent":"claude2","action":{"type":"list_dir","path":NaN}}'),
                           ("/memory", '{"content":"x","project_id":Infinity}')):
