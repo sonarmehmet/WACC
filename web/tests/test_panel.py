@@ -151,6 +151,12 @@ class PanelTests(unittest.TestCase):
                                  headers={"Origin": "http://evil.example"})
         self.assertEqual(status, 403)
 
+    def test_negative_content_length_is_a_clean_400(self):
+        import socket
+        with socket.create_connection(("127.0.0.1", self.port), timeout=5) as sock:
+            sock.sendall(b"POST /api/messages HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: -5\r\n\r\n{}")
+            self.assertIn(b" 400 ", sock.recv(4096).split(b"\r\n", 1)[0])
+
     def test_only_get_and_post_are_allowed(self):
         for method in ("PUT", "DELETE", "PATCH"):
             status, _, _ = self.call(method, "/api/tasks", token="user")

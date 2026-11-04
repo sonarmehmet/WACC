@@ -155,11 +155,11 @@ def create_app(hub: Optional[Hub] = None, tokens: Optional[dict] = None, token_p
 
     @app.get("/inbox")
     def inbox(unread: bool = False, limit: int = 100, me: str = Depends(actor)):
-        return hub.inbox(me, unread_only=unread, limit=min(limit, 500))
+        return hub.inbox(me, unread_only=unread, limit=max(1, min(limit, 500)))
 
     @app.get("/sent")
     def sent(limit: int = 100, me: str = Depends(actor)):
-        return hub.sent(me, limit=min(limit, 500))
+        return hub.sent(me, limit=max(1, min(limit, 500)))
 
     @app.get("/outbox")
     def outbox(me: str = Depends(actor)):
@@ -179,7 +179,7 @@ def create_app(hub: Optional[Hub] = None, tokens: Optional[dict] = None, token_p
 
     @app.get("/feed")
     def feed(limit: int = 200, conversation_id: Optional[str] = None, me: str = Depends(actor)):
-        return hub.feed(limit=min(limit, 500), conversation_id=conversation_id)
+        return hub.feed(limit=max(1, min(limit, 500)), conversation_id=conversation_id)
 
     # tasks
     @app.post("/tasks")
@@ -286,7 +286,7 @@ def create_app(hub: Optional[Hub] = None, tokens: Optional[dict] = None, token_p
     def audit(limit: int = 200, me: str = Depends(actor)):
         if me not in ("user", "claude1"):
             raise HTTPException(status_code=403, detail="Audit log is restricted")
-        return hub.audit_log(limit=min(limit, 1000))
+        return hub.audit_log(limit=max(1, min(limit, 1000)))
 
     @app.post("/render")
     def render(me: str = Depends(actor)):

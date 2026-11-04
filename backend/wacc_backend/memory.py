@@ -87,7 +87,7 @@ class Memory:
             conn.close()
         if tag:
             rows = [r for r in rows if tag.strip().lower() in r["tags"]]
-        return rows[:min(int(limit), 200)]
+        return rows[:max(1, min(int(limit), 200))]
 
     def search(self, query: str, project_id: Optional[int] = None, limit: int = 10) -> List[dict]:
         q = _words(query)
@@ -101,4 +101,4 @@ class Memory:
             if score:
                 scored.append((score, e["id"], e))
         scored.sort(key=lambda x: (-x[0], -x[1]))  # best score, newest first
-        return [dict(e, score=s) for s, _, e in scored[:min(int(limit), 50)]]
+        return [dict(e, score=s) for s, _, e in scored[:max(1, min(int(limit), 50))]]

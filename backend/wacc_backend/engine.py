@@ -180,7 +180,7 @@ class TaskEngine:
             params.append(project_id)
         conn = self.storage._connect()
         try:
-            rows = conn.execute(sql + " ORDER BY id DESC LIMIT ?", params + [min(int(limit), 500)]).fetchall()
+            rows = conn.execute(sql + " ORDER BY id DESC LIMIT ?", params + [max(1, min(int(limit), 500))]).fetchall()
             return [_job(r) for r in rows]
         finally:
             conn.close()

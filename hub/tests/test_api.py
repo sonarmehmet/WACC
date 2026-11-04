@@ -34,6 +34,16 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.get("/inbox").status_code, 401)
         self.assertEqual(self.client.get("/inbox", headers={"X-WACC-Token": "bad"}).status_code, 401)
 
+    def test_negative_limits_do_not_mean_unlimited(self):
+        for i in range(3):
+            self.client.post("/messages", headers=self.h("claude2"),
+                             json={"receiver": "claude3", "message_type": "STATUS_UPDATE", "subject": "m%d" % i})
+        for path in ("/inbox", "/sent", "/feed"):
+            agent = "claude3" if path == "/inbox" else "claude2"
+            r = self.client.get(path + "?limit=-1", headers=self.h(agent))
+            self.assertEqual(r.status_code, 200)
+            self.assertLessEqual(len(r.json()), 1, path)  # clamped to at least 1, not "no limit"
+
     def test_sender_comes_from_token(self):
         r = self.client.post("/messages", headers=self.h("claude2"),
                              json={"receiver": "claude3", "message_type": "STATUS_UPDATE", "subject": "hi"})

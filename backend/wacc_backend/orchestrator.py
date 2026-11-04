@@ -98,7 +98,8 @@ class OpenAICompatProvider(Provider):
         req.add_header("Content-Type", "application/json")
         if self._api_key:
             req.add_header("Authorization", "Bearer " + self._api_key)
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({} if self.kind == LOCAL else None))
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({} if self.kind == LOCAL else None),
+                                             _NoRedirect)  # a redirect would carry the Authorization header along
         try:
             with opener.open(req, timeout=self.timeout) as resp:
                 data = json.loads(resp.read(5_000_000))
@@ -112,6 +113,11 @@ class OpenAICompatProvider(Provider):
             raise ProviderError(f"{self.name}: unreachable ({type(exc).__name__})")
         except (ValueError, KeyError, IndexError, TypeError):
             raise ProviderError(f"{self.name}: malformed response")
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None  # urllib then raises HTTPError for the 3xx answer
 
 
 def validate_base_url(url: str, kind: str) -> str:

@@ -12,6 +12,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +25,31 @@ KILL_GRACE = 2.0
 SAFE_ENV_KEYS = ("PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC", "TEMP", "TMP", "HOME", "USERPROFILE",
                  "APPDATA", "LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMDATA", "JAVA_HOME",
                  "ANDROID_HOME", "ANDROID_SDK_ROOT", "FLUTTER_ROOT", "PUB_CACHE", "LANG", "LC_ALL", "PYTHONUTF8")
+
+
+class _CheckedRedirect(urllib.request.HTTPRedirectHandler):
+    """The policy approved one URL; a redirect must not lead to http://, to a local/private address or to a
+    different, unreviewed host (SSRF through an allowed or approved page)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        from ipaddress import ip_address
+        from urllib.parse import urlsplit
+        new, old = urlsplit(newurl), urlsplit(req.full_url)
+        host = (new.hostname or "").lower()
+        bad = new.scheme != "https" or not host or new.username or host == "localhost" or host.endswith(
+            (".local", ".internal", ".localhost"))
+        try:
+            ip = ip_address(host)
+            bad = bad or ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+        except ValueError:
+            pass
+        if bad or host != (old.hostname or "").lower():
+            raise urllib.error.HTTPError(req.full_url, code, "Redirect to another host or an unsafe address was refused",
+                                         headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_SAFE_OPENER = urllib.request.build_opener(_CheckedRedirect)
 
 
 class ExecutionKilled(Exception):
@@ -99,7 +125,7 @@ class RealExecutor(Executor):
     # --------------------------------------------------------------- network
     def _http_get(self, action, should_stop):
         req = urllib.request.Request(action["url"], headers={"User-Agent": "WACC-exec/0.1"})
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with _SAFE_OPENER.open(req, timeout=30) as resp:
             body = resp.read(MAX_OUTPUT)
             return {"status": resp.status, "body": body.decode("utf-8", "replace")}
 

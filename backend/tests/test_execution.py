@@ -203,6 +203,84 @@ class ClassifyTests(Base):
         self.assertEqual(len({a.action_hash, c.action_hash, d.action_hash}), 3)
 
 
+class SecurityRegressionTests(Base):
+    """Found by attacking the running system (see docs/SECURITY_TEST_LOG.md): each of these used to be auto-allowed."""
+
+    def test_git_options_that_write_or_run_outside_are_refused(self):
+        out = self.outside / "x.txt"
+        for argv in (["git", "diff", "--output=" + str(out)], ["git", "log", "--output=" + str(out)],
+                     ["git", "show", "--output", "x"], ["git", "diff", "--out=" + str(out)],
+                     ["git", "diff", "--no-index", "a", "b"], ["git", "fetch", "--upload-p=touch x #", "."],
+                     ["git", "fetch", "--upload=touch x", "."], ["git", "fetch", "--receive-p=x", "."],
+                     ["git", "diff", "-Oorder.txt"], ["git", "log", "--ext-d"]):
+            self.assertEqual(self.run_(argv).verdict, DENY, argv)
+
+    def test_option_values_that_are_paths_must_stay_inside(self):
+        d = self.run_(["git", "log", "--format=%H", "--file=" + str(self.outside / "f")])
+        self.assertEqual(d.verdict, DENY)
+
+    def test_dash_m_only_skips_the_message_of_commit_and_tag(self):
+        self.assertEqual(self.run_(["git", "commit", "-m", "../not/a/path"]).verdict, ALLOW)
+        self.assertEqual(self.run_(["git", "diff", "-m", str(self.outside / "secret.txt")]).verdict, DENY)
+
+    def test_ordinary_git_still_runs_automatically(self):
+        for argv in (["git", "status", "--short"], ["git", "log", "--oneline", "-5"], ["git", "diff", "--stat"],
+                     ["git", "diff", "--name-only"], ["git", "add", "."], ["git", "fetch", "origin"],
+                     ["git", "log", "--pretty=format:%h"], ["git", "show", "HEAD"], ["git", "branch", "--show-current"]):
+            self.assertEqual(self.run_(argv).verdict, ALLOW, argv)
+
+    def test_fetch_from_a_url_needs_approval(self):
+        for remote in ("file://" + str(self.outside), "https://example.com/r.git", "ext::sh -c id", "host:path"):
+            self.assertEqual(self.run_(["git", "fetch", remote]).verdict, APPROVAL, remote)
+
+    def test_code_and_launch_files_need_approval_to_write(self):
+        for path in (".github/workflows/ci.yml", "backend/wacc_backend/security.py", "hub/wacc_hub/auth.py",
+                     "web/serve.py", "start_wacc.bat", "launch.py", "conftest.py", "sub/conftest.py", "sitecustomize.py",
+                     "requirements.txt", "pubspec.yaml", "package.json", "run.sh", "Backend/Wacc_Backend/x.py",
+                     ".gitattributes", "setup.py", "pyproject.toml"):
+            d = self.c({"type": "write_file", "path": path, "content": "x"})
+            self.assertEqual((d.verdict, d.action_class), (APPROVAL, SYSTEM_CHANGE), path)
+        self.assertEqual(self.c({"type": "write_file", "path": "web/public/app.js", "content": "x"}).verdict, ALLOW)
+        self.assertEqual(self.c({"type": "write_file", "path": "notes.txt", "content": "x"}).verdict, ALLOW)
+
+    def test_install_approval_is_bound_to_the_files_it_installs_from(self):
+        req = self.root / "requirements.txt"
+        req.write_text("requests\n", encoding="utf-8")
+        argv = ["pip", "install", "-r", "requirements.txt"]
+        before = self.run_(argv)
+        self.assertEqual(before.verdict, APPROVAL)
+        self.assertEqual(self.run_(argv).action_hash, before.action_hash)  # stable while nothing changes
+        req.write_text("evil-package==1.0\n", encoding="utf-8")
+        self.assertNotEqual(self.run_(argv).action_hash, before.action_hash)
+
+    def test_install_of_a_local_package_is_bound_to_its_content(self):
+        pkg = self.root / "pkg"
+        pkg.mkdir()
+        (pkg / "setup.py").write_text("print('v1')", encoding="utf-8")
+        argv = ["pip", "install", "./pkg"]
+        first = self.run_(argv).action_hash
+        (pkg / "setup.py").write_text("print('v2')", encoding="utf-8")
+        self.assertNotEqual(self.run_(argv).action_hash, first)
+
+    def test_changed_requirements_need_a_new_approval_end_to_end(self):
+        svc = self.service()
+        (self.root / "requirements.txt").write_text("requests\n", encoding="utf-8")
+        act = {"type": "run", "argv": ["pip", "install", "-r", "requirements.txt"]}
+        out = svc.submit("claude2", act)
+        self.approvals.decide(out["approval_id"], True, "user")
+        self.assertEqual(svc.submit("claude2", act, approval_id=out["approval_id"])["status"], "OK")
+        self.assertEqual(svc.submit("claude2", act)["status"], "OK")  # same file: remembered, as before
+        (self.root / "requirements.txt").write_text("evil==1\n", encoding="utf-8")
+        self.assertEqual(svc.submit("claude2", act)["status"], "APPROVAL_REQUIRED")
+        # and an approval given for the old content cannot be used for the new content
+        (self.root / "requirements.txt").write_text("requests\n", encoding="utf-8")
+        pending = svc.submit("claude2", {"type": "run", "argv": ["pip", "install", "-r", "requirements.txt", "--upgrade"]})
+        self.approvals.decide(pending["approval_id"], True, "user")
+        (self.root / "requirements.txt").write_text("evil==1\n", encoding="utf-8")
+        self.assertEqual(self.code(svc.submit, "claude2", {"type": "run", "argv": ["pip", "install", "-r", "requirements.txt", "--upgrade"]},
+                                   approval_id=pending["approval_id"]), "HASH_MISMATCH")
+
+
 class ServiceTests(Base):
     def test_allowed_action_runs_and_is_audited(self):
         svc = self.service()

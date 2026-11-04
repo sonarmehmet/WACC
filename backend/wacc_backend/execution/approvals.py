@@ -56,7 +56,7 @@ class Approvals:
         conn = self.storage._connect()
         try:
             return [dict(r) for r in conn.execute("SELECT * FROM exec_audit ORDER BY id DESC LIMIT ?",
-                                                  (min(int(limit), 1000),)).fetchall()]
+                                                  (max(1, min(int(limit), 1000)),)).fetchall()]
         finally:
             conn.close()
 
@@ -97,7 +97,7 @@ class Approvals:
         conn = self.storage._connect()
         try:
             return [_approval(r) for r in conn.execute(sql + " ORDER BY id DESC LIMIT ?",
-                                                       params + [min(int(limit), 500)]).fetchall()]
+                                                       params + [max(1, min(int(limit), 500))]).fetchall()]
         finally:
             conn.close()
 
