@@ -16,9 +16,11 @@ Yöntem: uygulamaya "saldırgan ajan" gözüyle bakıldı. Bulgular yalnızca ko
 | 8 | Orta | Onay kuyruğunu boğma | Bir ajan sınırsız farklı onay isteği açıp gerçek istekleri gömebilirdi | Ajan başına en fazla 20 bekleyen istek |
 | 9 | Orta | "Daha önce onaylandı" kısayolu | `pip install .` / `-r dosya` bir kez onaylanınca, içerik değişse bile aynı komut onaysız çalışıyordu | Yalnızca düz paket adları (sürümlü) kısayoldan yararlanır |
 | 10 | Düşük | Negatif `Content-Length` | Web proxy işleyici iş parçacığı çöküyordu | 400 döner |
+| 11 | Orta | Gövde boyutu sınırı yok | Bir ajan tokeniyle tek istekte devasa karar/not/içerik yollayıp disk ve belleği doldurmak mümkündü (Hub ve Backend) | Hub 1 MB, Backend 4 MB üstü istek 413; parçalı (chunked) gövde kabul edilmez |
+| 12 | Düşük | Sınırsız kilit | Bir ajan tüm klasörleri uzun süreli kilitleyip diğerlerini durdurabilirdi | Ajan başına en fazla 40 kilit |
 
 ## Denendi, açık bulunmadı
-Web paneli: statik dosya yol geçişi (`..`, `%2e%2e`, ters eğik çizgi), DNS rebinding (`Host`), çapraz kaynak yazma (`Origin`), proxy yol enjeksiyonu (`@`, CRLF, sonda satır sonu, uzun kimlik), izin listesi dışı backend yolları, başlık enjeksiyonu.
+Geri yükleme (`restore`): `..`, mutlak yol, ters eğik çizgi, NUL, sürücü harfi, yeni satır ile yedek adı kaçırma. Web paneli: statik dosya yol geçişi (`..`, `%2e%2e`, ters eğik çizgi), DNS rebinding (`Host`), çapraz kaynak yazma (`Origin`), proxy yol enjeksiyonu (`@`, CRLF, sonda satır sonu, uzun kimlik), izin listesi dışı backend yolları, başlık enjeksiyonu.
 
 ## Bilinen kalan riskler (kabul edilen veya kullanıcı kararı)
 - Token dosyaları `data\` içinde düz; aynı makinede ajanın kendi kabuğu varsa okuyabilir. Ajanlar yalnızca `/exec` üzerinden çalışmalı.
