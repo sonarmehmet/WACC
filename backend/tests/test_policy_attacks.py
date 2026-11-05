@@ -54,7 +54,7 @@ class PolicyAttackTests(unittest.TestCase):
 
     def test_normal_git_use_stays_automatic(self):
         for args in (["status"], ["log", "-1", "--oneline"], ["diff", "--stat"], ["diff", "--cached"],
-                     ["add", "hub/wacc_hub/db.py"], ["add", "."], ["commit", "-m", "fix: a/b thing"], ["fetch", "origin"],
+                     ["add", "mobile/lib/main.dart"], ["add", "."], ["commit", "-m", "fix: a/b thing"], ["fetch", "origin"],
                      ["show", "HEAD:hub/wacc_hub/db.py"], ["log", "--follow", "-p", "--", "README.md"]):
             self.assertEqual(self.git(*args).verdict, ALLOW, args)
 
@@ -67,9 +67,11 @@ class PolicyAttackTests(unittest.TestCase):
         for path in ("start_wacc.bat", "scripts/run_backend.bat", "x/y.cmd", "fastapi.py", "json.py", "web/json.py",
                      "hub/http.py", "backend/wacc_backend/security.py", "backend/wacc_backend/app.py",
                      "hub/requirements.txt", "backend/requirements.txt", "mobile/pubspec.yaml", ".github/workflows/tests.yml",
-                     "conftest.py", "sitecustomize.py", "hub/wacc_hub/auth.py", "web/serve.py", "x/evil.pth", ".gitattributes"):
+                     "conftest.py", "sitecustomize.py", "hub/wacc_hub/auth.py", "web/serve.py", "x/evil.pth", ".gitattributes",
+                     "web/public/app.js", "web/public/index.html", "backend/wacc_backend/__init__.py", "backend/wacc_backend/storage.py",
+                     "hub/wacc_hub/service.py", "launcher/wacc_launcher.py", "desktop/wacc_desktop/ui.py", "installer/wacc.iss"):
             self.assertEqual(self.write(path), APPROVAL, path)
-        for path in ("hub/wacc_hub/db.py", "web/public/app.js", "mobile/lib/main.dart", "docs/NOTES.md", "backend/tests/test_x.py"):
+        for path in ("mobile/lib/main.dart", "docs/NOTES.md", "backend/tests/test_x.py", "hub/tests/test_y.py", "notes/todo.txt"):
             self.assertEqual(self.write(path), ALLOW, path)
 
     def test_real_git_cannot_leak_secrets_through_automatic_commands(self):
