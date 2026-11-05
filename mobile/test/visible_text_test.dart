@@ -7,9 +7,9 @@ void main() {
   });
 
   test('direction marks, zero-width and look-alike characters are made visible', () {
-    expect(visibleText('re‮quests'), r're\u{202e}quests');
-    expect(visibleText('re​quests'), r're\u{200b}quests');
-    expect(visibleText('reаquests'), r're\u{430}quests');
+    expect(visibleText('re\u202equests'), r're\u{202e}quests');
+    expect(visibleText('re\u200bquests'), r're\u{200b}quests');
+    expect(visibleText('re\u0430quests'), r're\u{430}quests');
   });
 
   test('long text is never cut', () {
