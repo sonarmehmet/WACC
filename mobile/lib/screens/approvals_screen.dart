@@ -299,6 +299,20 @@ class _ApprovalsScreenState extends State<ApprovalsScreen> {
   }
 }
 
+/// What the user reads before approving must be exactly what runs: show every character, and show anything
+/// that is not plain printable ASCII (direction marks, zero-width characters, look-alike letters) as \u{code}.
+String visibleText(String text) {
+  final b = StringBuffer();
+  for (final r in text.runes) {
+    if (r == 10 || (r >= 32 && r < 127)) {
+      b.writeCharCode(r);
+    } else {
+      b.write('\\u{${r.toRadixString(16)}}');
+    }
+  }
+  return b.toString();
+}
+
 class _RawAction extends StatelessWidget {
   const _RawAction({required this.text});
 
@@ -306,7 +320,7 @@ class _RawAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final clipped = text.length > 4000 ? '${text.substring(0, 4000)}…' : text;
+    final shown = visibleText(text); // never cut: the backend refuses actions too long to be reviewed in full
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.symmetric(vertical: 6),
@@ -317,7 +331,7 @@ class _RawAction extends StatelessWidget {
         borderRadius: BorderRadius.circular(6),
       ),
       child: SingleChildScrollView(
-        child: SelectableText(clipped, style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
+        child: SelectableText(shown, style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
       ),
     );
   }
