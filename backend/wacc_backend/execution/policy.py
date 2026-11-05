@@ -32,7 +32,8 @@ MAX_ARG_LEN = 2000
 PROTECTED_WRITE_PREFIXES = ("backend/wacc_backend/execution/", "docs/EXECUTION_SECURITY.md", ".gitignore", ".gitattributes",
                             ".github/", "scripts/", "backend/wacc_backend/security.py", "backend/wacc_backend/app.py",
                             "backend/wacc_backend/config.py", "backend/wacc_backend/accounts.py",
-                            "hub/wacc_hub/auth.py", "hub/wacc_hub/api.py", "web/serve.py", "desktop/wacc_desktop/__main__.py")
+                            "hub/wacc_hub/", "backend/wacc_backend/", "desktop/wacc_desktop/", "launcher/", "installer/",
+                            "web/serve.py", "web/public/")  # everything that runs inside WACC itself (incl. the panel's JS)
 PROTECTED_WRITE_SUFFIXES = (".bat", ".cmd", ".ps1", ".sh", ".pth", ".vbs", ".lnk", ".exe", ".dll")
 PROTECTED_WRITE_NAMES = ("requirements.txt", "pubspec.yaml", "pubspec.lock", "pyproject.toml", "setup.py", "setup.cfg",
                          "conftest.py", "sitecustomize.py", "usercustomize.py", "package.json", "package-lock.json",
