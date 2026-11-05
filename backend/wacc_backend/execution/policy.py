@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from ipaddress import ip_address
 from pathlib import Path
@@ -25,6 +26,8 @@ ALLOW, APPROVAL, DENY = "ALLOW", "APPROVAL", "DENY"
 DEFAULT_NETWORK_ALLOWLIST = ("pypi.org", "files.pythonhosted.org", "github.com", "pub.dev", "registry.npmjs.org")
 MAX_WRITE_BYTES = 2_000_000
 MAX_ARGS = 64
+MAX_REVIEWABLE_JSON = 3500  # what the user must read before approving has to fit on the approval screen untruncated
+HIDDEN_CATEGORIES = ("Cc", "Cf", "Cs", "Co", "Zl", "Zp")  # control, format (bidi/zero-width), surrogate, private, separators
 MAX_ARG_LEN = 2000
 
 # Writing here weakens the guard rails themselves or changes what runs at the next start (launchers,
@@ -203,8 +206,34 @@ def _path_candidates(arg: str, exe: str) -> List[str]:
     return out
 
 
+def _has_hidden_chars(text: str) -> bool:
+    return any(unicodedata.category(ch) in HIDDEN_CATEGORIES for ch in text)
+
+
 def classify(action: dict, roots: Iterable[Path], network_allowlist: Iterable[str] = DEFAULT_NETWORK_ALLOWLIST,
              requested_by: str = "", auto_run_code: bool = False) -> Decision:
+    decision = _classify_inner(action, roots, network_allowlist, requested_by, auto_run_code)
+    if decision.verdict == APPROVAL:
+        if len(json.dumps(decision.normalized, ensure_ascii=False)) > MAX_REVIEWABLE_JSON:
+            return _deny(decision.action_class, f"Action is too long to be reviewed on the approval screen (limit {MAX_REVIEWABLE_JSON} characters)",
+                         decision.summary[:200])
+        if any(_has_hidden_chars(t) for t in _strings(decision.normalized)):
+            return _deny(decision.action_class, "Action contains invisible or direction-changing characters", decision.summary[:200])
+    return decision
+
+
+def _strings(value):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for v in value.values():
+            yield from _strings(v)
+    elif isinstance(value, (list, tuple)):
+        for v in value:
+            yield from _strings(v)
+
+
+def _classify_inner(action: dict, roots: Iterable[Path], network_allowlist, requested_by: str, auto_run_code: bool) -> Decision:
     if not isinstance(action, dict) or not isinstance(action.get("type"), str):
         return _deny(SYSTEM_CHANGE, "Action must be an object with a 'type'")
     kind = action["type"]
@@ -239,8 +268,10 @@ def _classify_path_action(kind, action, roots) -> Decision:
         norm["sha256"] = hashlib.sha256(content.encode("utf-8")).hexdigest()
         norm["bytes"] = len(content.encode("utf-8"))
         if _protected_write(rel):
-            return Decision(SYSTEM_CHANGE, APPROVAL, "This file defines the security rules or what runs at the next start", f"write_file {rel}", norm,
-                            {"content": content})
+            preview = content[:300].encode("unicode_escape").decode("ascii")
+            more = "" if len(content) <= 300 else f" (+{len(content) - 300} more characters)"
+            return Decision(SYSTEM_CHANGE, APPROVAL, "This file defines the security rules or what runs at the next start",
+                            f"write_file {rel} content starts: {preview}{more}", norm, {"content": content})
         return Decision(WRITE_PROJECT, ALLOW, "Write inside the project", f"write_file {rel} ({norm['bytes']} bytes)", norm,
                         {"content": content})
     return Decision(DELETE, APPROVAL, "Deleting needs approval; the file is moved to _to_delete/, not erased",
@@ -270,6 +301,14 @@ def _classify_run(action, roots, requested_by, auto_run_code: bool = False) -> D
         return _deny(PERSONAL_FILES if exc.code == "OUTSIDE_ROOT" else SYSTEM_CHANGE, exc.message, summary)
     exe, args = _exe_name(argv[0]), argv[1:]
     norm = {"type": "run", "argv": [exe] + args, "cwd": str(cwd)}
+    free_text = set()  # values of git -m/--message may be any language; everything else must be plain ASCII
+    if exe == "git":
+        for i, a in enumerate(args[:-1]):
+            if a in ("-m", "--message"):
+                free_text.add(i + 1)
+    for i, a in enumerate(args):
+        if i not in free_text and not a.isascii() and exe != "git" and not _path_like(a):
+            return _deny(SYSTEM_CHANGE, f"Argument {a[:40]!r} has look-alike (non-ASCII) characters; use plain ASCII", summary, norm)
 
     # Path-looking arguments must stay inside the roots (values of -m/--message are free text).
     skip = False

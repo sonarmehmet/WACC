@@ -56,12 +56,16 @@ def patch_min_sdk() -> None:
 def patch_main_manifest() -> None:
     path = ANDROID / "app" / "src" / "main" / "AndroidManifest.xml"
     text = path.read_text(encoding="utf-8")
-    if "android.permission.INTERNET" in text:
-        return
-    new = text.replace("<application", '<uses-permission android:name="android.permission.INTERNET"/>\n    <application', 1)
-    if new == text:
+    new = text
+    if "android.permission.INTERNET" not in new:
+        new = new.replace("<application", '<uses-permission android:name="android.permission.INTERNET"/>\n    <application', 1)
+    # No cloud/adb backup of the app's data (saved server addresses, encrypted token store).
+    if "android:allowBackup" not in new:
+        new = new.replace("<application", '<application android:allowBackup="false"', 1)
+    if new == text and "<application" not in text:
         fail(f"<application> not found in {path}")
-    path.write_text(new, encoding="utf-8")
+    if new != text:
+        path.write_text(new, encoding="utf-8")
 
 
 def write_debug_manifest() -> None:
