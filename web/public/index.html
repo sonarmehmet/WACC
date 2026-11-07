@@ -47,7 +47,15 @@
       <div class="state-label" id="state-label">BAĞLANIYOR</div>
       <div class="caption" id="caption"></div>
 
+      <div class="voice-log" id="voiceLog" aria-live="polite"></div>
+      <form id="cmdForm" class="cmd-row" autocomplete="off">
+        <input id="cmdInput" type="text" placeholder="Komut yaz… (örn. durum, görev ekle …, grok ekle, onaylar)" autocomplete="off">
+        <button type="submit" id="cmdSend">GÖNDER</button>
+      </form>
+
       <div class="controls">
+        <button id="micBtn" type="button" class="ctrl-btn live">● SESLİ KOMUT</button>
+        <button id="liveBtn" type="button" class="ctrl-btn">SÜREKLİ DİNLE</button>
         <button id="stopBtn" type="button" class="ctrl-btn shutdown hidden">ACİL DURDUR</button>
         <button id="resumeBtn" type="button" class="ctrl-btn live hidden">DEVAM ETTİR</button>
         <button id="quitBtn" type="button" class="ctrl-btn pause hidden">UYGULAMAYI KAPAT</button>
@@ -68,8 +76,27 @@
 
       <main>
         <section id="tab-agents" class="tab">
+          <form id="easyForm" class="card form hidden" autocomplete="off">
+            <h2>Yapay zekâ ekle (tek adım)</h2>
+            <p class="hint"><b>1)</b> Sağlayıcıyı seç. <b>2)</b> API anahtarını aşağıdaki kutuya yapıştır. <b>3)</b> Ekle'ye bas.
+              Anahtarı sağlayıcının sitesinden alırsın (Grok: console.x.ai, ChatGPT: platform.openai.com,
+              Claude: console.anthropic.com). Anahtar bu bilgisayarda saklanır ve bir daha gösterilmez.</p>
+            <label>Sağlayıcı <select id="ezProvider"></select></label>
+            <label>API anahtarı (buraya yapıştır)
+              <input id="ezKey" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false"
+                     placeholder="xai-… / sk-… gibi uzun anahtar">
+            </label>
+            <div class="row">
+              <label>Ajan adı (otomatik) <input id="ezName" maxlength="20" autocapitalize="off"></label>
+              <label>Model <input id="ezModel" maxlength="80" autocapitalize="off"></label>
+            </div>
+            <label id="ezUrlRow" class="hidden">Adres <input id="ezUrl" type="url" placeholder="https://…/v1"></label>
+            <div class="actions"><button id="ezAddBtn" type="submit">Ekle</button></div>
+            <p id="ezStatus" class="hint"></p>
+          </form>
           <div id="agents" class="grid"></div>
-          <form id="agentForm" class="card form hidden agent-add" autocomplete="off">
+          <details id="advAgent" class="adv hidden"><summary>Gelişmiş: kendi ajan tokenını oluştur</summary>
+          <form id="agentForm" class="card form agent-add" autocomplete="off">
             <h2>Ajan ekle</h2>
             <p class="hint">Yalnızca kullanıcı tokenı ile görünür. Token <b>bir kez</b> gösterilir. ChatGPT/Gemini web sohbetleri
               yerel Hub'a bağlanamaz; çalışan yol API hesabı + worker'dır.</p>
@@ -81,6 +108,7 @@
             <div class="actions"><button id="agAddBtn" type="submit">Ekle</button></div>
             <div id="agToken" class="hidden"></div>
           </form>
+          </details>
         </section>
 
         <section id="tab-feed" class="tab hidden">
@@ -237,5 +265,7 @@
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
   <script src="/hud.js"></script>
   <script src="/app.js"></script>
+  <script src="/voice-parse.js"></script>
+  <script src="/voice.js"></script>
 </body>
 </html>

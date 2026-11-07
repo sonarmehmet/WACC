@@ -185,7 +185,14 @@ Paket kurma, dosya silme, test/derleme çalıştırma gibi işler otomatik çal�
 5. WACC'ı kapatıp `start_wacc.bat` ile yeniden başlat.
 
 ### 9.2 Pencereden hesap ekleme (yeniden başlatmadan)
-**Yapay Zeka** sekmesi (masaüstü, web ya da telefon) → onay token'ını gir → **Hesap ekle**: ad, tür (yerel/bulut), OpenAI uyumlu adres, model, API anahtarı (yerel için boş) → **Ekle** → **Test et**.
+**En kolay yol (Grok, ChatGPT, Claude, OpenRouter, Ollama):** pencerenin sağındaki **Ajanlar** sekmesinin en üstünde **"Yapay zekâ ekle (tek adım)"** kutusu var.
+1. **Sağlayıcı** listesinden seç (örn. *Grok (xAI)*). Ajan adı ve model kendiliğinden dolar.
+2. **API anahtarı** kutusuna anahtarı yapıştır. Anahtarı sağlayıcının sitesinden alırsın: Grok → console.x.ai, ChatGPT → platform.openai.com, Claude → console.anthropic.com. Ollama (bu bilgisayarda çalışan model) için anahtar gerekmez.
+3. **Ekle**'ye bas. WACC hesabı açar, ajanı ekler ve bir deneme çağrısı yapar; kutunun altında "Çalışıyor" ya da nedenini yazar. Model adı eskimişse kutudaki **Model** alanını sağlayıcının güncel adıyla değiştirip tekrar dene.
+
+Anahtar yalnızca bu bilgisayarda saklanır, bir daha gösterilmez. Elle ayrıntılı ayar istersen **Yapay Zeka** sekmesi (masaüstü, web ya da telefon) → **Hesap ekle**: ad, tür (yerel/bulut), OpenAI uyumlu adres, model, API anahtarı (yerel için boş) → **Ekle** → **Test et**.
+
+**Sesli ve yazılı komut:** ortadaki radarın altında bir komut kutusu ve iki düğme var. **SESLİ KOMUT** tek seferlik dinler, **SÜREKLİ DİNLE** açıkken "WACC" diye başlayan komutlara cevap verir. İlk basışta pencere mikrofon izni ister, **İzin ver** de. Ses tanıma Edge/Chrome'un kendi servisini kullanır, internet gerekir; internet yoksa kutuya yazarak aynı komutları verirsin. Örnekler: *durum*, *onaylar*, *görevler*, *görev ekle kurulum rehberini düzelt*, *claude1'e söyle testleri çalıştır*, *grok ekle*, *acil durdur*, *yardım*. Güvenlik için ses yalnızca gezinir, durumu okur, formları doldurur ve **acil durdurur**; **onay, ret ve devam ettirme her zaman senin tıklaman** ister (ortamdaki bir ses yanlış komut vermesin diye).
 - Bulut adresleri yalnızca **https** olabilir, yerel adresler yalnızca bu bilgisayar (127.0.0.1) olabilir.
 - API anahtarı kaydedilir ama **bir daha gösterilmez**. Test bulut hesabında gerçek bir istek atar ve günlük bütçeye sayılır.
 - OpenAI uyumlu her servis olur (Ollama, LM Studio, OpenRouter, OpenAI...).
