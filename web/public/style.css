@@ -259,7 +259,7 @@ pre.raw { margin: 6px 0; padding: 8px 10px; max-height: 260px; overflow: auto; b
 
 .adv { margin-top: 14px; }
 .adv summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-bottom: 8px; }
-.voice-log { width: calc(100% - 32px); max-height: 74px; overflow-y: auto; font-size: 12px; color: var(--muted); margin: 4px 16px 0; flex-shrink: 0; }
+.voice-log { width: calc(100% - 32px); max-height: 120px; overflow-y: auto; font-size: 12px; color: var(--muted); margin: 4px 16px 0; flex-shrink: 0; }
 .voice-log div { margin: 2px 0; }
 .voice-log .me { color: #89c2ff; }
 .voice-log .bot { color: var(--accent); }

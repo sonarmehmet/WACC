@@ -11,12 +11,14 @@ X-WACC-Token header and are never logged or stored here.
 
 import argparse
 import hmac
+import secrets
 import json
 import mimetypes
 import os
 import re
 import threading
 import time
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib import error as urlerror
@@ -37,12 +39,12 @@ BACKEND_GET_PATHS = frozenset({
 # Backend from the token: approve/deny/resume and every AI-account change need the user token.
 #  * decide an approval, stop/resume execution (POST)
 #  * AI accounts: add (POST), switch on/off and test one (POST), remove (DELETE)
-# Submitting actions (POST /exec), AI calls (/ai/complete), the budget and memory are NOT
-# forwarded. Account names are checked here with the Backend's own rule (lower case only).
+# AI chat (POST /ai/complete, text in / text out, counted against the daily budget) is forwarded for the
+# control-room chat box. Submitting actions (POST /exec), the budget and memory are NOT forwarded. Account names are checked here with the Backend's own rule (lower case only).
 _AI_NAME = r"[a-z0-9][a-z0-9_-]{1,30}"
 BACKEND_POST_PATHS = re.compile(
     r"^(?:/exec/(?:approvals/[0-9]{1,9}/(?:approve|deny)|stop|resume)"
-    r"|/ai/accounts"
+    r"|/ai/accounts|/ai/complete"
     r"|/ai/providers/" + _AI_NAME + r"/(?:enabled|test))$")
 # Hub: removing a user-managed agent. The Hub alone decides (user token only; built-ins are refused).
 HUB_DELETE_PATHS = re.compile(r"^/api/agents/[a-z][a-z0-9_-]{1,19}$")
@@ -62,7 +64,7 @@ _OPENER = urlrequest.build_opener(urlrequest.ProxyHandler({}))
 # (so no token ever sits on a command line or in a file the browser keeps), then pings so the launcher
 # knows the window is still open. /_wacc/quit needs the user's approval token.
 _DESKTOP = {"nonce": None, "tokens": None, "quit_token": "", "on_quit": None, "on_reopen": None,
-            "last_ping": time.time()}
+            "sessions": set(), "last_ping": time.time()}
 _DESKTOP_LOCK = threading.Lock()
 _DIAG = {"fn": None}
 
@@ -186,19 +188,30 @@ def make_handler(hub_url: str, backend_url: str = DEFAULT_BACKEND):
             self._json(405, {"detail": "Method not allowed"})
 
         def _handoff(self):
-            """One-time trade of the launcher's key for the tokens. Same-origin only, works once."""
+            """Trade the launcher's one-time key for the tokens (the window then gets a session cookie), or, after a
+            page reload, show that cookie instead. Same-origin only. The cookie is HttpOnly + SameSite=Strict and
+            only valid while this app runs, so a reload does not lose the tokens and nothing is written to disk."""
             site = self.headers.get("Sec-Fetch-Site")
             key = (parse_qs(urlsplit(self.path).query).get("k") or [""])[0]
+            cookie = SimpleCookie(self.headers.get("Cookie") or "")
+            session = cookie["wacc_win"].value if "wacc_win" in cookie else ""
+            extra = None
             with _DESKTOP_LOCK:
                 nonce = _DESKTOP["nonce"]
-                ok = bool(nonce) and bool(key) and site in (None, "same-origin") and hmac.compare_digest(
-                    key.encode(), nonce.encode())
-                tokens = _DESKTOP["tokens"] if ok else None
-                if ok:
+                same_site = site in (None, "same-origin")
+                tokens = None
+                if same_site and key and nonce and hmac.compare_digest(key.encode(), nonce.encode()):
                     _DESKTOP["nonce"] = None  # single use
+                    session = secrets.token_urlsafe(24)
+                    _DESKTOP["sessions"].add(session)
+                    tokens = _DESKTOP["tokens"]
+                    extra = {"Set-Cookie": "wacc_win=%s; Path=/_wacc; HttpOnly; SameSite=Strict" % session}
+                elif same_site and not key and session and session in _DESKTOP["sessions"]:
+                    tokens = _DESKTOP["tokens"]
             if not tokens:
                 return self._json(403, {"detail": {"code": "NO_HANDOFF", "message": "Hand-off key invalid or used"}})
-            self._json(200, {k: tokens.get(k, "") for k in ("hub", "backend", "user")})
+            self._send(200, json.dumps({k: tokens.get(k, "") for k in ("hub", "backend", "user")}).encode("utf-8"),
+                       extra=extra)
 
         def _quit(self):
             token = self.headers.get("X-WACC-Token", "")
@@ -271,16 +284,17 @@ def make_handler(hub_url: str, backend_url: str = DEFAULT_BACKEND):
             body = self._read_body()
             if body is None:
                 return
-            self._forward("POST", backend_url + path, body, "BACKEND_UNREACHABLE", unreachable)
+            self._forward("POST", backend_url + path, body, "BACKEND_UNREACHABLE", unreachable,
+                          timeout=100 if path == "/ai/complete" else 10)  # a model may need a while to answer
 
-        def _forward(self, method, url, body, unreachable_code, unreachable_message):
+        def _forward(self, method, url, body, unreachable_code, unreachable_message, timeout=10):
             req = urlrequest.Request(url, data=body, method=method)
             for name in FORWARDED_HEADERS:
                 value = self.headers.get(name)
                 if value:
                     req.add_header(name, value)
             try:
-                with _OPENER.open(req, timeout=10) as resp:
+                with _OPENER.open(req, timeout=timeout) as resp:
                     self._send(resp.status, resp.read(), resp.headers.get("Content-Type", "application/json"))
             except urlerror.HTTPError as exc:  # upstream answered with an error: pass it through unchanged
                 self._send(exc.code, exc.read(), exc.headers.get("Content-Type", "application/json"))
