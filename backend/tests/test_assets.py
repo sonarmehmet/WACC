@@ -42,12 +42,13 @@ class BrandingAssets(unittest.TestCase):
     def test_palette_in_doc_matches_the_web_panel_css_and_passes_contrast(self):
         css = (ROOT / "web" / "public" / "style.css").read_text(encoding="utf-8")
         doc = (ASSETS / "palette.md").read_text(encoding="utf-8")
-        light = dict(re.findall(r"--([a-z-]+):\s*(#[0-9a-fA-F]{6})", css.split("@media")[0]))
-        for token in ("bg", "panel", "text", "muted", "line", "accent", "ok", "warn", "bad"):
-            self.assertIn(light[token].lower(), doc.lower(), token)
-        self.assertGreaterEqual(contrast(light["text"], light["panel"]), 4.5)
-        self.assertGreaterEqual(contrast(light["muted"], light["panel"]), 4.5)
-        self.assertGreaterEqual(contrast(light["accent-text"], light["accent"]), 4.5)
+        tokens = dict(re.findall(r"--([a-z-]+):\s*(#[0-9a-fA-F]{6})", css.split(":root")[1].split("}")[0]))
+        for token in ("bg", "panel", "text", "muted", "accent", "accent-text", "ok", "warn", "bad"):
+            self.assertIn(tokens[token].lower(), doc.lower(), token)
+        for fg in ("text", "muted", "ok", "warn", "bad"):  # text colours on the panel surface
+            self.assertGreaterEqual(contrast(tokens[fg], tokens["panel"]), 4.5, fg)
+        self.assertGreaterEqual(contrast(tokens["accent"], tokens["panel"]), 3.0)
+        self.assertGreaterEqual(contrast(tokens["accent-text"], tokens["accent"]), 4.5)
         self.assertGreaterEqual(contrast("#ffffff", "#2557d6"), 4.5)  # icon glyphs on the brand color
 
 

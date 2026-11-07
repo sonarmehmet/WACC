@@ -7,3 +7,6 @@ Windows masaüstü paneli (Tkinter, ek paket gerekmez). Ajanlar, görevler, **on
 - Token'lar: Hub (`data/tokens.json` içinden), backend (`data/backend_token.txt`) ve **onay token'ı** (backend penceresinde yazar). Hepsi yalnızca bellekte tutulur, diske yazılmaz.
 - Onay ve "devam ettir" yalnızca onay token'ıyla çalışır; her onay tek eylem içindir.
 - Hub'dan gelen metinler güvenilmeyen girdidir, sadece etiket olarak gösterilir.
+
+
+Not: Kurulu uygulamada (WACC.exe) ana pencere artık bu Tk penceresi değil, `web/public` içindeki kontrol odası arayüzüdür (Edge/Chrome `--app` penceresi, token'lar tek kullanımlık anahtarla otomatik gelir). Bu Tk penceresi yalnızca Edge/Chrome bulunamazsa ya da `WACC_UI=tk` verilirse açılır.

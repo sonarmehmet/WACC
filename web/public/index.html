@@ -3,187 +3,239 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>WACC Panel</title>
+  <title>WACC</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header class="top">
-    <img class="logo" src="/icon-192.png" alt="" width="28" height="28">
-    <h1>WACC</h1>
-    <span id="conn" class="badge">Bağlanıyor…</span>
-    <span id="stopBadge" class="badge bad hidden">ACİL DURDURMA AÇIK</span>
-    <span class="spacer"></span>
-    <form id="tokenForm" class="inline" autocomplete="off">
-      <label for="token">Token</label>
-      <input id="token" type="password" placeholder="X-WACC-Token" autocomplete="off">
-      <label class="check-inline" for="remember"
-             title="Kapalıyken token sekme kapanınca silinir; açıkken bu tarayıcıda kalıcı saklanır.">
-        <input id="remember" type="checkbox"> Hatırla
-      </label>
-      <button type="submit">Bağlan</button>
-      <button id="forgetToken" type="button" class="ghost" title="Hub ve Backend tokenlarını siler">Unut</button>
-    </form>
-  </header>
+  <div id="app">
 
-  <nav class="tabs" aria-label="Bölümler">
-    <button type="button" data-tab="agents" class="active">Ajanlar</button>
-    <button type="button" data-tab="feed">Akış</button>
-    <button type="button" data-tab="tasks">Görevler</button>
-    <button type="button" data-tab="locks">Kilitler</button>
-    <button type="button" data-tab="backend">Backend</button>
-    <button type="button" id="approvalsTab" data-tab="approvals">Onaylar</button>
-    <button type="button" data-tab="ai">Yapay Zeka</button>
-  </nav>
+    <!-- SOL PANEL: saat, sistem durumu, bağlantı -->
+    <aside class="panel" id="left-panel">
+      <div class="section-title">SAAT</div>
+      <div class="clock" id="clock">--:--</div>
+      <div class="date-line" id="date-line">-</div>
 
-  <main>
-    <section id="tab-agents" class="tab">
-      <div class="toolbar">
-        <button id="stopBtn" type="button" class="danger hidden">Acil durdur</button>
-        <button id="resumeBtn" type="button" class="hidden">Devam ettir</button>
-      </div>
-      <form id="agentForm" class="card form hidden" autocomplete="off">
-        <h2>Ajan ekle</h2>
-        <p class="hint">Yalnızca kullanıcı tokenı ile görünür. Token <b>bir kez</b> gösterilir. ChatGPT/Gemini web sohbetleri
-          yerel Hub'a bağlanamaz; çalışan yol API hesabı + worker'dır.</p>
-        <label>Ad <input id="agName" placeholder="gpt1" maxlength="20"></label>
-        <label>Tür <select id="agKind"><option value="claude">Claude</option><option value="gemini">Gemini</option>
-          <option value="chatgpt">ChatGPT</option><option value="other">Diğer</option></select></label>
-        <label>Rol <input id="agRole" placeholder="opsiyonel"></label>
-        <label>Bağlı AI hesabı <input id="agProvider" placeholder="opsiyonel (Yapay Zeka sekmesindeki ad)"></label>
-        <div class="actions"><button id="agAddBtn" type="submit">Ekle</button></div>
-        <div id="agToken" class="hidden"></div>
-      </form>
-      <div id="agents" class="grid"></div>
-    </section>
+      <div class="section-title">SİSTEM DURUMU</div>
+      <div class="bar-row"><span class="bar-label">AJAN</span><div class="bar-track"><div class="bar-fill" id="bar-agents"></div></div><span class="bar-pct" id="pct-agents">--</span></div>
+      <div class="bar-row"><span class="bar-label">GÖREV</span><div class="bar-track"><div class="bar-fill" id="bar-tasks"></div></div><span class="bar-pct" id="pct-tasks">--</span></div>
+      <div class="bar-row"><span class="bar-label">KİLİT</span><div class="bar-track"><div class="bar-fill" id="bar-locks"></div></div><span class="bar-pct" id="pct-locks">--</span></div>
+      <div class="bar-row"><span class="bar-label">ONAY</span><div class="bar-track"><div class="bar-fill" id="bar-approvals"></div></div><span class="bar-pct" id="pct-approvals">--</span></div>
 
-    <section id="tab-feed" class="tab hidden">
-      <form id="msgForm" class="card form">
-        <h2>Mesaj gönder</h2>
-        <p id="convHint" class="hint hidden"></p>
-        <div class="row">
-          <label>Alıcı <select id="msgReceiver" required></select></label>
-          <label>Tür <select id="msgType" required></select></label>
-          <label>Öncelik <select id="msgPriority"></select></label>
+      <div class="section-title">BAĞLANTI</div>
+      <div class="link-row"><span class="link-dot" id="dot-hub"></span>Hub</div>
+      <div class="link-row"><span class="link-dot" id="dot-backend"></span>Backend</div>
+      <div class="link-row"><span class="link-dot" id="dot-approval"></span>Onay yetkisi</div>
+      <div class="info-text" id="hud-note"></div>
+
+      <button type="button" class="settings-btn" id="settingsBtn">AYARLAR</button>
+    </aside>
+
+    <!-- ORTA PANEL: radar -->
+    <section class="panel" id="center-panel">
+      <div class="center-header">
+        <div class="title"><img class="logo" src="/icon-192.png" alt="" width="28" height="28">W . A . C . C</div>
+        <div class="badges">
+          <span id="stopBadge" class="badge bad hidden">ACİL DURDURMA AÇIK</span>
+          <span id="conn" class="badge">Bağlanıyor…</span>
         </div>
-        <label>Konu <input id="msgSubject" type="text" maxlength="200" required></label>
-        <label>İçerik <textarea id="msgContent" rows="3" maxlength="20000"></textarea></label>
-        <label class="check"><input id="msgResponse" type="checkbox"> Yanıt gerekli</label>
-        <div><button type="submit">Gönder</button></div>
-      </form>
-      <div class="toolbar">
-        <span id="filterInfo" class="hint"></span>
-        <button id="clearFilter" type="button" class="ghost hidden">Filtreyi temizle</button>
       </div>
-      <div id="feed" class="feed"></div>
+      <div class="tagline">Yapay zekâ geliştirme ekibi kontrol odası</div>
+
+      <canvas id="radar-canvas"></canvas>
+
+      <div class="state-label" id="state-label">BAĞLANIYOR</div>
+      <div class="caption" id="caption"></div>
+
+      <div class="controls">
+        <button id="stopBtn" type="button" class="ctrl-btn shutdown hidden">ACİL DURDUR</button>
+        <button id="resumeBtn" type="button" class="ctrl-btn live hidden">DEVAM ETTİR</button>
+        <button id="quitBtn" type="button" class="ctrl-btn pause hidden">UYGULAMAYI KAPAT</button>
+      </div>
     </section>
 
-    <section id="tab-tasks" class="tab hidden">
-      <form id="taskForm" class="card form">
-        <h2>Görev oluştur</h2>
-        <p id="taskHint" class="hint hidden">Görevi yalnızca claude1 veya user oluşturabilir.</p>
-        <label>Başlık <input id="taskTitle" type="text" required></label>
-        <label>Açıklama <textarea id="taskDescription" rows="2"></textarea></label>
-        <div class="row">
-          <label>Sahip <select id="taskOwner"></select></label>
-          <label>Öncelik <select id="taskPriority"></select></label>
-        </div>
-        <label>Dosyalar (virgülle ayır) <input id="taskFiles" type="text" placeholder="backend/, web/"></label>
-        <label>Kabul ölçütü <input id="taskAcceptance" type="text"></label>
-        <label>Test ölçütü <input id="taskTests" type="text"></label>
-        <div><button id="taskSubmit" type="submit">Oluştur</button></div>
-      </form>
-      <div id="tasks"></div>
-    </section>
+    <!-- SAĞ PANEL: sekmeler -->
+    <section class="panel" id="right-panel">
+      <nav class="tabs" aria-label="Bölümler">
+        <button type="button" data-tab="agents" class="active">Ajanlar</button>
+        <button type="button" data-tab="feed">Akış</button>
+        <button type="button" data-tab="tasks">Görevler</button>
+        <button type="button" data-tab="locks">Kilitler</button>
+        <button type="button" data-tab="backend">Backend</button>
+        <button type="button" id="approvalsTab" data-tab="approvals">Onaylar</button>
+        <button type="button" data-tab="ai">Yapay Zeka</button>
+      </nav>
 
-    <section id="tab-locks" class="tab hidden">
-      <div id="locks"></div>
-    </section>
+      <main>
+        <section id="tab-agents" class="tab">
+          <div id="agents" class="grid"></div>
+          <form id="agentForm" class="card form hidden agent-add" autocomplete="off">
+            <h2>Ajan ekle</h2>
+            <p class="hint">Yalnızca kullanıcı tokenı ile görünür. Token <b>bir kez</b> gösterilir. ChatGPT/Gemini web sohbetleri
+              yerel Hub'a bağlanamaz; çalışan yol API hesabı + worker'dır.</p>
+            <label>Ad <input id="agName" placeholder="gpt1" maxlength="20"></label>
+            <label>Tür <select id="agKind"><option value="claude">Claude</option><option value="gemini">Gemini</option>
+              <option value="chatgpt">ChatGPT</option><option value="other">Diğer</option></select></label>
+            <label>Rol <input id="agRole" placeholder="opsiyonel"></label>
+            <label>Bağlı AI hesabı <input id="agProvider" placeholder="opsiyonel (Yapay Zeka sekmesindeki ad)"></label>
+            <div class="actions"><button id="agAddBtn" type="submit">Ekle</button></div>
+            <div id="agToken" class="hidden"></div>
+          </form>
+        </section>
 
-    <section id="tab-backend" class="tab hidden">
-      <form id="backendTokenForm" class="card form" autocomplete="off">
-        <h2>Backend <span id="backendConn" class="badge">Bağlanıyor…</span></h2>
-        <p class="hint">Salt okunur görünüm. Backend'in kendi tokenı vardır (<code>data/backend_token.txt</code>);
-          Hub tokenından farklıdır. Üstteki <b>Hatırla</b> kutusu bu token için de geçerlidir.</p>
-        <label>Backend token <input id="backendToken" type="password" placeholder="X-WACC-Token" autocomplete="off"></label>
+        <section id="tab-feed" class="tab hidden">
+          <form id="msgForm" class="card form">
+            <h2>Mesaj gönder</h2>
+            <p id="convHint" class="hint hidden"></p>
+            <div class="row">
+              <label>Alıcı <select id="msgReceiver" required></select></label>
+              <label>Tür <select id="msgType" required></select></label>
+              <label>Öncelik <select id="msgPriority"></select></label>
+            </div>
+            <label>Konu <input id="msgSubject" type="text" maxlength="200" required></label>
+            <label>İçerik <textarea id="msgContent" rows="3" maxlength="20000"></textarea></label>
+            <label class="check"><input id="msgResponse" type="checkbox"> Yanıt gerekli</label>
+            <div><button type="submit">Gönder</button></div>
+          </form>
+          <div class="toolbar">
+            <span id="filterInfo" class="hint"></span>
+            <button id="clearFilter" type="button" class="ghost hidden">Filtreyi temizle</button>
+          </div>
+          <div id="feed" class="feed"></div>
+        </section>
+
+        <section id="tab-tasks" class="tab hidden">
+          <form id="taskForm" class="card form">
+            <h2>Görev oluştur</h2>
+            <p id="taskHint" class="hint hidden">Görevi yalnızca claude1 veya user oluşturabilir.</p>
+            <label>Başlık <input id="taskTitle" type="text" required></label>
+            <label>Açıklama <textarea id="taskDescription" rows="2"></textarea></label>
+            <div class="row">
+              <label>Sahip <select id="taskOwner"></select></label>
+              <label>Öncelik <select id="taskPriority"></select></label>
+            </div>
+            <label>Dosyalar (virgülle ayır) <input id="taskFiles" type="text" placeholder="backend/, web/"></label>
+            <label>Kabul ölçütü <input id="taskAcceptance" type="text"></label>
+            <label>Test ölçütü <input id="taskTests" type="text"></label>
+            <div><button id="taskSubmit" type="submit">Oluştur</button></div>
+          </form>
+          <div id="tasks"></div>
+        </section>
+
+        <section id="tab-locks" class="tab hidden">
+          <div id="locks"></div>
+        </section>
+
+        <section id="tab-backend" class="tab hidden">
+          <form id="backendTokenForm" class="card form" autocomplete="off">
+            <h2>Backend <span id="backendConn" class="badge">Bağlanıyor…</span></h2>
+            <p class="hint">Salt okunur görünüm. Backend'in kendi tokenı vardır (<code>data/backend_token.txt</code>);
+              Hub tokenından farklıdır. Kurulu uygulamada otomatik gelir. Elle çalıştırıyorsan buraya yapıştır.
+              Üstteki <b>Hatırla</b> kutusu (Ayarlar) bu token için de geçerlidir.</p>
+            <label>Backend token <input id="backendToken" type="password" placeholder="X-WACC-Token" autocomplete="off"></label>
+            <div class="actions">
+              <button type="submit">Bağlan</button>
+              <button id="forgetBackendToken" type="button" class="ghost">Unut</button>
+            </div>
+          </form>
+          <div id="backend"></div>
+        </section>
+
+        <section id="tab-approvals" class="tab hidden">
+          <form id="approvalTokenForm" class="card form" autocomplete="off">
+            <h2>Onaylar <span id="approvalConn" class="badge">Bağlanıyor…</span></h2>
+            <p class="hint">Ajanların istediği riskli eylemleri (silme, kurulum, push…) yalnızca sen onaylarsın.
+              Bunun için <b>kullanıcı tokenı</b> gerekir. Kurulu uygulamada otomatik gelir ve yalnızca bellekte durur.
+              Tarayıcıda elle açtıysan: token'ı yazdığın yer bellektir, girince alandan silinir, 5 dakika
+              işlem yapmazsan veya sayfayı yenilersen unutulur. Token'ı girmeden bekleyen istekleri yalnızca görürsün
+              (Backend sekmesindeki token ile).</p>
+            <label>Onay token'ı (kullanıcı)
+              <input id="approvalToken" type="password" autocomplete="new-password" autocapitalize="off"
+                     spellcheck="false" placeholder="kullanıcı tokenı">
+            </label>
+            <div class="actions">
+              <button type="submit">Kullan</button>
+              <button id="forgetApprovalToken" type="button" class="ghost">Sil</button>
+              <span id="approvalTokenState" class="badge warn">Onay token'ı yok: yalnızca görüntüleme</span>
+            </div>
+            <div class="actions hidden" id="notifyRow">
+              <button id="notifyBtn" type="button" class="ghost">Yeni onayda bildirim göster</button>
+              <span id="notifyState" class="hint"></span>
+            </div>
+          </form>
+          <div id="approvals"></div>
+        </section>
+
+        <section id="tab-ai" class="tab hidden">
+          <form id="aiTokenForm" class="card form" autocomplete="off">
+            <h2>Yapay zeka hesapları <span id="aiConn" class="badge">Bağlanıyor…</span></h2>
+            <p class="hint">Sağlayıcıları herkes görür. Hesap ekleme, silme, açıp kapatma ve test yalnızca
+              <b>kullanıcı tokenı</b> ile yapılır (Onaylar sekmesindeki aynı token). API anahtarı hiçbir yerde saklanmaz,
+              gönderilince formdan silinir ve geri gösterilmez.</p>
+            <label>Kullanıcı tokenı
+              <input id="aiToken" type="password" autocomplete="new-password" autocapitalize="off"
+                     spellcheck="false" placeholder="kullanıcı tokenı">
+            </label>
+            <div class="actions">
+              <button type="submit">Kullan</button>
+              <button id="forgetAiToken" type="button" class="ghost">Sil</button>
+              <span id="aiTokenState" class="badge warn">Onay token'ı yok: yalnızca görüntüleme</span>
+            </div>
+          </form>
+          <div id="ai"></div>
+          <form id="aiAddForm" class="card form" autocomplete="off">
+            <h2>Hesap ekle</h2>
+            <p class="hint">Herhangi bir OpenAI uyumlu uç nokta olur (Ollama, LM Studio, OpenRouter, OpenAI…).
+              <b>local</b>: yalnızca bu bilgisayarın adresi (127.0.0.1 / localhost), anahtar isteğe bağlı.
+              <b>cloud</b>: yalnızca https ve anahtar zorunlu; kullanımı günlük bütçeye sayılır.</p>
+            <div class="row">
+              <label>Ad <input id="aiName" type="text" required minlength="2" maxlength="31"
+                               pattern="[a-z0-9][a-z0-9_\-]{1,30}" placeholder="ornek-model" autocapitalize="off"></label>
+              <label>Tür <select id="aiKind"><option value="local">local</option><option value="cloud">cloud</option></select></label>
+            </div>
+            <label>Adres (base URL) <input id="aiUrl" type="url" required placeholder="http://127.0.0.1:11434/v1"></label>
+            <label>Model <input id="aiModel" type="text" required placeholder="llama3.1"></label>
+            <label>API anahtarı
+              <input id="aiKey" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false"
+                     placeholder="cloud için zorunlu, local için boş bırakılabilir">
+            </label>
+            <div class="row">
+              <label>1K giriş fiyatı ($, isteğe bağlı) <input id="aiPriceIn" type="number" min="0" step="any"></label>
+              <label>1K çıkış fiyatı ($, isteğe bağlı) <input id="aiPriceOut" type="number" min="0" step="any"></label>
+            </div>
+            <label class="check"><input id="aiEnabled" type="checkbox" checked> Eklenince etkin olsun</label>
+            <div><button id="aiAddBtn" type="submit" disabled>Ekle</button></div>
+          </form>
+        </section>
+      </main>
+    </section>
+  </div>
+
+  <!-- AYARLAR -->
+  <div class="modal-overlay hidden" id="settings-modal">
+    <div class="modal">
+      <button type="button" class="modal-close" id="settingsClose" aria-label="Kapat">&times;</button>
+      <h3>AYARLAR</h3>
+      <p class="hint">Kurulu uygulamada (WACC-Setup.exe) token'lar kendiliğinden gelir: burada hiçbir şey yapman gerekmez.
+        Bu kutu yalnızca paneli tarayıcıda elle açıyorsan lazım.</p>
+      <form id="tokenForm" class="form" autocomplete="off">
+        <label for="token">Hub token (ajanlar ve görevler)
+          <input id="token" type="password" placeholder="X-WACC-Token" autocomplete="off">
+        </label>
+        <label class="check" for="remember"
+               title="Kapalıyken token sekme kapanınca silinir; açıkken bu tarayıcıda kalıcı saklanır.">
+          <input id="remember" type="checkbox"> Hatırla
+        </label>
         <div class="actions">
           <button type="submit">Bağlan</button>
-          <button id="forgetBackendToken" type="button" class="ghost">Unut</button>
+          <button id="forgetToken" type="button" class="ghost" title="Hub ve Backend tokenlarını siler">Unut</button>
         </div>
       </form>
-      <div id="backend"></div>
-    </section>
-
-    <section id="tab-approvals" class="tab hidden">
-      <form id="approvalTokenForm" class="card form" autocomplete="off">
-        <h2>Onaylar <span id="approvalConn" class="badge">Bağlanıyor…</span></h2>
-        <p class="hint">Ajanların istediği riskli eylemleri (silme, kurulum, push…) yalnızca sen onaylarsın.
-          Bunun için <b>kullanıcı tokenı</b> gerekir: backend penceresinde her açılışta yazılır, diske kaydedilmez.
-          Panel de onu <b>hiçbir yerde saklamaz</b>: yalnızca bellekte tutar, girince alandan siler, 5 dakika
-          işlem yapmazsan veya sayfayı yenilersen unutur. Token'ı girmeden bekleyen istekleri yalnızca görürsün
-          (Backend sekmesindeki token ile).</p>
-        <label>Onay token'ı (kullanıcı)
-          <input id="approvalToken" type="password" autocomplete="new-password" autocapitalize="off"
-                 spellcheck="false" placeholder="backend penceresinde gösterilen kullanıcı tokenı">
-        </label>
-        <div class="actions">
-          <button type="submit">Kullan</button>
-          <button id="forgetApprovalToken" type="button" class="ghost">Sil</button>
-          <span id="approvalTokenState" class="badge warn">Onay token'ı yok: yalnızca görüntüleme</span>
-        </div>
-        <div class="actions hidden" id="notifyRow">
-          <button id="notifyBtn" type="button" class="ghost">Yeni onayda bildirim göster</button>
-          <span id="notifyState" class="hint"></span>
-        </div>
-      </form>
-      <div id="approvals"></div>
-    </section>
-
-    <section id="tab-ai" class="tab hidden">
-      <form id="aiTokenForm" class="card form" autocomplete="off">
-        <h2>Yapay zeka hesapları <span id="aiConn" class="badge">Bağlanıyor…</span></h2>
-        <p class="hint">Sağlayıcıları herkes görür. Hesap ekleme, silme, açıp kapatma ve test yalnızca
-          <b>kullanıcı tokenı</b> ile yapılır (Onaylar sekmesindeki aynı token: yalnızca bellekte tutulur,
-          5 dakika işlem yapmazsan veya sayfayı yenilersen unutulur). API anahtarı hiçbir yerde saklanmaz,
-          gönderilince formdan silinir ve geri gösterilmez.</p>
-        <label>Kullanıcı tokenı
-          <input id="aiToken" type="password" autocomplete="new-password" autocapitalize="off"
-                 spellcheck="false" placeholder="backend penceresinde gösterilen kullanıcı tokenı">
-        </label>
-        <div class="actions">
-          <button type="submit">Kullan</button>
-          <button id="forgetAiToken" type="button" class="ghost">Sil</button>
-          <span id="aiTokenState" class="badge warn">Onay token'ı yok: yalnızca görüntüleme</span>
-        </div>
-      </form>
-      <div id="ai"></div>
-      <form id="aiAddForm" class="card form" autocomplete="off">
-        <h2>Hesap ekle</h2>
-        <p class="hint">Herhangi bir OpenAI uyumlu uç nokta olur (Ollama, LM Studio, OpenRouter, OpenAI…).
-          <b>local</b>: yalnızca bu bilgisayarın adresi (127.0.0.1 / localhost), anahtar isteğe bağlı.
-          <b>cloud</b>: yalnızca https ve anahtar zorunlu; kullanımı günlük bütçeye sayılır.</p>
-        <div class="row">
-          <label>Ad <input id="aiName" type="text" required minlength="2" maxlength="31"
-                           pattern="[a-z0-9][a-z0-9_\-]{1,30}" placeholder="ornek-model" autocapitalize="off"></label>
-          <label>Tür <select id="aiKind"><option value="local">local</option><option value="cloud">cloud</option></select></label>
-        </div>
-        <label>Adres (base URL) <input id="aiUrl" type="url" required placeholder="http://127.0.0.1:11434/v1"></label>
-        <label>Model <input id="aiModel" type="text" required placeholder="llama3.1"></label>
-        <label>API anahtarı
-          <input id="aiKey" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false"
-                 placeholder="cloud için zorunlu, local için boş bırakılabilir">
-        </label>
-        <div class="row">
-          <label>1K giriş fiyatı ($, isteğe bağlı) <input id="aiPriceIn" type="number" min="0" step="any"></label>
-          <label>1K çıkış fiyatı ($, isteğe bağlı) <input id="aiPriceOut" type="number" min="0" step="any"></label>
-        </div>
-        <label class="check"><input id="aiEnabled" type="checkbox" checked> Eklenince etkin olsun</label>
-        <div><button id="aiAddBtn" type="submit" disabled>Ekle</button></div>
-      </form>
-    </section>
-  </main>
+    </div>
+  </div>
 
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+  <script src="/hud.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>
