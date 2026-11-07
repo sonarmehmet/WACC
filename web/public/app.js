@@ -1115,7 +1115,7 @@ async function aiAdd(ev) {
 
 // Presets: provider -> OpenAI-compatible address, a default model (editable) and the agent kind.
 const EASY_PRESETS = {
-  grok: { label: "Grok (xAI)", kind: "cloud", url: "https://api.x.ai/v1", model: "grok-4", agent: "other", prefix: "grok" },
+  grok: { label: "Grok (xAI)", kind: "cloud", url: "https://api.x.ai/v1", model: "grok-4.7", agent: "other", prefix: "grok" },
   openai: { label: "ChatGPT (OpenAI)", kind: "cloud", url: "https://api.openai.com/v1", model: "gpt-4o-mini", agent: "chatgpt", prefix: "gpt" },
   claude: { label: "Claude (Anthropic)", kind: "cloud", url: "https://api.anthropic.com/v1", model: "claude-sonnet-5-5", agent: "claude", prefix: "claude" },
   openrouter: { label: "OpenRouter", kind: "cloud", url: "https://openrouter.ai/api/v1", model: "openai/gpt-4o-mini", agent: "other", prefix: "or" },
@@ -1138,6 +1138,29 @@ function easyPick() {
   $("ezKey").placeholder = preset.kind === "local" ? "gerekmez (boş bırak)" : "xai-… / sk-… gibi uzun anahtar";
 }
 
+// Model names change over time (a hard-coded guess is what made Grok answer HTTP 400). Ask the provider which
+// models the key may use and take one that exists: the current choice if it is listed, else the best match.
+const NOT_CHAT = /embed|image|imagine|vision|video|tts|whisper|audio|moderation|realtime|transcribe|search|dall|guard|rerank/i;
+const MODEL_PREFS = {
+  grok: [/^grok-\d+(\.\d+)*$/, /^grok-\d+(\.\d+)*-(mini|fast)$/],
+  openai: [/^gpt-4o-mini$/, /^gpt-4\.1-mini$/, /^gpt-4o$/, /^gpt-\d/],
+  claude: [/^claude-.*sonnet/, /^claude-/],
+};
+
+function versionKey(id) {
+  return (id.match(/\d+(\.\d+)*/g) || ["0"]).join(".").split(".").map((n) => n.padStart(6, "0")).join(".");
+}
+
+function pickModel(provider, ids, current) {
+  if (!ids.length || ids.includes(current)) return current;
+  const chat = ids.filter((id) => !NOT_CHAT.test(id));
+  for (const re of MODEL_PREFS[provider] || []) {
+    const hits = chat.filter((id) => re.test(id)).sort((a, b) => versionKey(a).localeCompare(versionKey(b)));
+    if (hits.length) return hits[hits.length - 1]; // newest version
+  }
+  return chat[0] || ids[0];
+}
+
 async function easyAdd(ev) {
   ev.preventDefault();
   const status = $("ezStatus");
@@ -1153,8 +1176,24 @@ async function easyAdd(ev) {
   $("ezKey").value = ""; // the secret leaves the form before anything is sent, success or not
   const button = $("ezAddBtn");
   button.disabled = true; // no double submit
-  status.textContent = "Ekleniyor…";
+  status.textContent = "Anahtar kontrol ediliyor…";
   try {
+    try {
+      const found = await approvalCall(state.approvalToken, "/ai/discover", {
+        method: "POST", body: { kind: preset.kind, base_url: body.base_url, ...(secret ? { api_key: secret } : {}) },
+      });
+      const ids = (found && found.models) || [];
+      const chosen = pickModel($("ezProvider").value, ids, body.model);
+      if (chosen !== body.model) {
+        status.textContent = "\"" + body.model + "\" bu anahtarda yok; \"" + chosen + "\" kullanılıyor.";
+        body.model = chosen;
+        $("ezModel").value = chosen;
+      }
+    } catch (e) {
+      // a wrong key / address is reported right here; "this address has no model list" just keeps the typed model
+      if (/HTTP 40[13]|ulaşılamadı/.test(e.message || "")) throw e;
+    }
+    status.textContent = "Ekleniyor…";
     await approvalCall(state.approvalToken, "/ai/accounts", { method: "POST", body });
     touchApprovalToken();
     await api("/agents", { method: "POST", body: { name, kind: preset.agent, role: "", provider: name } });

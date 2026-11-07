@@ -259,6 +259,14 @@
           <button id="forgetToken" type="button" class="ghost" title="Hub ve Backend tokenlarını siler">Unut</button>
         </div>
       </form>
+      <h3 class="modal-sub">SES</h3>
+      <p class="hint">En doğal ses Edge'deki <b>Microsoft Emel (Doğal)</b> sesidir (kadın, internet gerekir). Otomatik seçilir; beğenmezsen buradan değiştir.</p>
+      <div class="form">
+        <label>Ses <select id="voiceSelect"></select></label>
+        <label>Hız <input id="voiceRate" type="range" min="0.8" max="1.2" step="0.05" value="1"></label>
+        <label class="check"><input id="voiceMute" type="checkbox"> Sesi kapat (yalnızca yazı)</label>
+        <div class="actions"><button id="voiceTest" type="button" class="ghost">Sesi dene</button></div>
+      </div>
       <div class="actions"><button id="diagBtn" type="button" class="ghost">Tanı raporu</button></div>
       <pre id="diagOut" class="raw hidden"></pre>
     </div>
