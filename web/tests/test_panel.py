@@ -685,6 +685,12 @@ class DesktopHandoffTests(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertNotIn(b"U", self.call("POST", "/_wacc/reopen", {})[2])
 
+    def test_diag_reports_what_the_launcher_gives_it_and_is_local_only(self):
+        self.serve.set_diag(lambda: {"hub_ok": False, "backend_ok": True, "log_tail": "boom"})
+        status, _, raw = self.call("GET", "/_wacc/diag")
+        self.assertEqual((status, json.loads(raw)["hub_ok"]), (200, False))
+        self.assertEqual(self.call("GET", "/_wacc/diag", headers={"Host": "evil.example"})[0], 403)
+
     def test_ping_updates_heartbeat_and_key_is_not_logged(self):
         before = self.serve.last_ping()
         time.sleep(0.02)
