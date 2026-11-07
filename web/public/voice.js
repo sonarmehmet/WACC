@@ -94,11 +94,36 @@
         say("Sağlayıcıyı seçtim. API anahtarını kutuya yapıştırıp Ekle'ye bas.");
         break;
       case "help":
-        say("Şunları söyleyebilirsin: durum; ajanlar, görevler, onaylar, kilitler, yapay zeka; görev ekle ve başlık; claude1'e söyle ve mesaj; grok ekle; acil durdur; ayarlar.");
+        say("Sıradan bir cümle yazarsan yapay zekâ hesabın cevap verir. Komutlar: durum; ajanlar, görevler, onaylar, kilitler, yapay zeka; görev ekle ve başlık; claude1'e söyle ve mesaj; grok ekle; acil durdur; ayarlar.");
         break;
       default:
-        say("Anlamadım. 'yardım' yaz ya da de.");
+        chat(cmd.text || text);
     }
+  }
+
+  // Anything that is not a fixed command is a conversation with the person's own AI account.
+  let chatBusy = false;
+  async function chat(text) {
+    if (chatBusy) { say("Bir önceki cevabı bekliyorum.", false); return; }
+    chatBusy = true;
+    line("bot", "düşünüyorum…");
+    try {
+      const r = await askAI(text);
+      logBox.lastChild.remove(); // the "thinking" line
+      say(r.text || "Boş cevap geldi.");
+    } catch (e) {
+      logBox.lastChild.remove();
+      if (e.code === "NO_PROVIDER") {
+        setTab("agents");
+        say("Henüz bir yapay zekâ hesabın yok, o yüzden sohbet edemiyorum. Ajanlar sekmesinde sağlayıcıyı seç, API anahtarını yapıştır, Ekle'ye bas.");
+      } else if (e.code === "ALL_FAILED") {
+        say("Yapay zekâ hesabı cevap vermedi: " + (e.message || "") + " Ajanlar sekmesindeki hesabın anahtarını ve model adını kontrol et.");
+      } else if (e.code === "BUDGET_EXCEEDED") {
+        say("Günlük yapay zekâ bütçesi doldu.");
+      } else {
+        say("Cevap alamadım: " + (e.message || "bağlantı hatası") + ". Ayarlar > Tanı raporu'na bak.");
+      }
+    } finally { chatBusy = false; }
   }
 
   /* ----------------------------------------------------------- microphone */

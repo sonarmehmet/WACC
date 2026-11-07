@@ -647,10 +647,10 @@ function touchApprovalToken() {
 // tokens (once), keep them in memory only, and tell the launcher the window is alive.
 async function desktopHandoff() {
   const key = new URLSearchParams(window.location.search).get("k");
-  if (!key) return;
-  window.history.replaceState(null, "", window.location.pathname); // the key leaves the address bar at once
+  if (key) window.history.replaceState(null, "", window.location.pathname); // the key leaves the address bar at once
   try {
-    const res = await fetch("/_wacc/handoff?k=" + enc(key), { headers: { Accept: "application/json" } });
+    // first load: the key; after a reload: the window's own session cookie (sent automatically)
+    const res = await fetch("/_wacc/handoff" + (key ? "?k=" + enc(key) : ""), { headers: { Accept: "application/json" } });
     if (!res.ok) return;
     const t = await res.json();
     state.desktop = true;
@@ -663,6 +663,30 @@ async function desktopHandoff() {
     refresh();
     setInterval(() => { fetch("/_wacc/ping", { method: "POST" }).catch(() => {}); }, 5000);
   } catch (e) { /* normal browser use: tokens are typed in Ayarlar */ }
+}
+
+/* ------------------------------------------------------------- AI chat (command box) */
+
+const CHAT_SYSTEM = "Sen WACC kontrol odasının sesli asistanısın. Kullanıcıyla Türkçe, kısa ve samimi konuş (en fazla 3 cümle). " +
+  "WACC, birkaç yapay zekâ ajanıyla yazılım geliştiren bir ekip yönetim sistemidir. Sen komut çalıştıramazsın, dosya değiştiremezsin " +
+  "ve onay veremezsin; bunları yalnızca kullanıcı panelden yapar. Bilmediğin bir şeyi uydurma.";
+const chatHistory = [];
+
+// Free-text from the command box / microphone goes to the person's own AI account and the answer is shown as
+// text only. The model cannot act on anything: its output is never executed or parsed as commands.
+async function askAI(text) {
+  const token = state.approvalToken || state.backendToken;
+  if (!token) throw new ApiError(0, "NO_TOKEN", "Yapay zekâ için Backend/onay token'ı yok (Ayarlar).");
+  const context = "Şu an: " + (state.data.agents || []).filter((a) => a.online).length + " ajan çevrimiçi, " +
+    (state.pendingCount || 0) + " onay bekliyor" + (state.data.emergency ? ", acil durdurma açık" : "") + ".";
+  const history = chatHistory.slice(-6).map((m) => (m.role === "user" ? "Kullanıcı: " : "Asistan: ") + m.text).join("\n");
+  const prompt = context + "\n" + (history ? history + "\n" : "") + "Kullanıcı: " + text.slice(0, 2000) + "\nAsistan:";
+  const out = await approvalCall(token, "/ai/complete", {
+    method: "POST", body: { prompt, system: CHAT_SYSTEM, max_tokens: 400 },
+  });
+  const reply = String((out && out.text) || "").trim();
+  chatHistory.push({ role: "user", text: text.slice(0, 500) }, { role: "ai", text: reply.slice(0, 800) });
+  return { text: reply, provider: out && out.provider };
 }
 
 function renderApprovalToken() {

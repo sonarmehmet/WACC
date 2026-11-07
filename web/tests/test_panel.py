@@ -400,6 +400,14 @@ class BackendProxyTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("budget_usd", usage)
 
+    def test_ai_chat_is_forwarded_and_answers_with_text(self):
+        status, body = self.post("/backend/ai/complete", token=self.USER_TOKEN, body={"prompt": "selam", "max_tokens": 50})
+        self.assertEqual(status, 200)
+        self.assertIn("selam", body["text"])  # the mock provider echoes the prompt
+        # no token -> the Backend refuses; the panel adds no power of its own
+        status, _ = self.post("/backend/ai/complete", token="wrong", body={"prompt": "selam"})
+        self.assertEqual(status, 401)
+
     def test_other_backend_paths_are_not_exposed(self):
         for path in ("/backend/memory", "/backend/memory/search?q=x", "/backend/jobs/1",
                      "/backend/jobs/claim", "/backend/engine/pause", "/backend/ai/complete",
@@ -410,7 +418,7 @@ class BackendProxyTests(unittest.TestCase):
 
     def test_only_the_listed_writes_are_forwarded(self):
         for path in ("/backend/jobs", "/backend/engine/pause", "/backend/projects", "/backend/exec",
-                     "/backend/memory", "/backend/ai/complete", "/backend/ai/budget",
+                     "/backend/memory", "/backend/ai/budget",
                      "/backend/exec/approvals", "/backend/exec/approvals/x/approve",
                      "/backend/exec/approvals/1/approve/extra", "/backend/exec/approvals/1",
                      "/backend/exec/stopp", "/backend/../exec/stop",
@@ -691,6 +699,21 @@ class DesktopHandoffTests(unittest.TestCase):
         self.assertEqual((status, json.loads(raw)["hub_ok"]), (200, False))
         self.assertEqual(self.call("GET", "/_wacc/diag", headers={"Host": "evil.example"})[0], 403)
 
+    def test_reload_keeps_the_window_signed_in_through_its_own_cookie(self):
+        status, headers, _ = self.call("GET", "/_wacc/handoff?k=" + "k" * 24)
+        self.assertEqual(status, 200)
+        cookie = headers["Set-Cookie"]
+        self.assertIn("HttpOnly", cookie)
+        self.assertIn("SameSite=Strict", cookie)
+        value = cookie.split(";")[0]
+        # reload: no key, only the cookie -> tokens again
+        status, _, raw = self.call("GET", "/_wacc/handoff", headers={"Cookie": value})
+        self.assertEqual((status, json.loads(raw)["user"]), (200, "USERTOK"))
+        # no cookie, a forged cookie or a cross-site request get nothing
+        self.assertEqual(self.call("GET", "/_wacc/handoff")[0], 403)
+        self.assertEqual(self.call("GET", "/_wacc/handoff", headers={"Cookie": "wacc_win=forged"})[0], 403)
+        self.assertEqual(self.call("GET", "/_wacc/handoff", headers={"Cookie": value, "Sec-Fetch-Site": "cross-site"})[0], 403)
+
     def test_ping_updates_heartbeat_and_key_is_not_logged(self):
         before = self.serve.last_ping()
         time.sleep(0.02)
@@ -801,6 +824,17 @@ class FrontendSourceTests(unittest.TestCase):
                           "innerHTML", "eval(", "localStorage", "sessionStorage", "X-WACC-Token"):
             self.assertNotIn(forbidden, source, forbidden)
         self.assertIn("/system/stop", source)  # the only write it may trigger: the safe direction
+
+    def test_ai_chat_output_is_text_only_and_never_acted_on(self):
+        app = (WEB / "public" / "app.js").read_text(encoding="utf-8")
+        voice = (WEB / "public" / "voice.js").read_text(encoding="utf-8")
+        body = app[app.index("async function askAI"):app.index("function renderApprovalToken")]
+        for forbidden in ("eval(", "innerHTML", "new Function", "setApprovalToken", "/exec", "/approve"):
+            self.assertNotIn(forbidden, body, forbidden)
+        chat = voice[voice.index("async function chat"):]
+        self.assertIn("say(r.text", chat)  # shown as text; the reply is never fed back into run()
+        self.assertNotIn("run(r", chat)
+        self.assertNotIn("parseCommand(r", chat)
 
     def test_ai_key_field_is_masked_and_cleared_before_sending(self):
         html = (WEB / "public" / "index.html").read_text(encoding="utf-8")
