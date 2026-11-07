@@ -774,9 +774,31 @@ class FrontendSourceTests(unittest.TestCase):
         for forbidden in ("fetch(", "XMLHttpRequest", "localStorage", "sessionStorage", "innerHTML", "eval(", "token ="):
             self.assertNotIn(forbidden, source, forbidden)
 
+    def test_voice_can_never_approve_deny_or_resume(self):
+        """Heard text is untrusted (TV, call, someone else): voice only navigates, reads status, fills forms,
+        and may trigger the emergency stop. Approvals and resume stay click-only."""
+        source = (WEB / "public" / "voice.js").read_text(encoding="utf-8")
+        for forbidden in ("approvalToken", "approvalCall", "/approve", "/deny", "/system/resume", "/exec/resume",
+                          "innerHTML", "eval(", "localStorage", "sessionStorage", "X-WACC-Token"):
+            self.assertNotIn(forbidden, source, forbidden)
+        self.assertIn("/system/stop", source)  # the only write it may trigger: the safe direction
+
+    def test_ai_key_field_is_masked_and_cleared_before_sending(self):
+        html = (WEB / "public" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="ezKey" type="password" autocomplete="new-password"', html)
+        source = (WEB / "public" / "app.js").read_text(encoding="utf-8")
+        self.assertLess(source.index('$("ezKey").value = ""; // the secret leaves'),
+                        source.index('await approvalCall(state.approvalToken, "/ai/accounts"'))
+
+    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    def test_voice_command_parser(self):
+        result = subprocess.run(["node", str(WEB / "tests" / "voice_parse_cases.js")], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), [])
+
     @unittest.skipUnless(shutil.which("node"), "node not installed")
     def test_javascript_parses(self):
-        for name in ("app.js", "hud.js"):
+        for name in ("app.js", "hud.js", "voice.js", "voice-parse.js"):
             result = subprocess.run(["node", "--check", str(WEB / "public" / name)],
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, name + ": " + result.stderr)

@@ -301,7 +301,10 @@ function agentCard(a) {
 
 function renderAgents() {
   const box = $("agents");
-  $("agentForm").classList.toggle("hidden", state.me !== "user");
+  const isUser = state.me === "user";
+  $("agentForm").classList.toggle("hidden", !isUser);
+  $("easyForm").classList.toggle("hidden", !isUser);
+  $("advAgent").classList.toggle("hidden", !isUser);
   const minute = Math.floor(Date.now() / 60000); // keeps "x dk önce" fresh
   renderRegion("agents", box, [state.data.agents, minute, state.me], () => {
     const list = state.data.agents;
@@ -1084,6 +1087,72 @@ async function aiAdd(ev) {
   }
 }
 
+/* ----------------------------------------------- one-step "add an AI" (provider + key) */
+
+// Presets: provider -> OpenAI-compatible address, a default model (editable) and the agent kind.
+const EASY_PRESETS = {
+  grok: { label: "Grok (xAI)", kind: "cloud", url: "https://api.x.ai/v1", model: "grok-4", agent: "other", prefix: "grok" },
+  openai: { label: "ChatGPT (OpenAI)", kind: "cloud", url: "https://api.openai.com/v1", model: "gpt-4o-mini", agent: "chatgpt", prefix: "gpt" },
+  claude: { label: "Claude (Anthropic)", kind: "cloud", url: "https://api.anthropic.com/v1", model: "claude-sonnet-5-5", agent: "claude", prefix: "claude" },
+  openrouter: { label: "OpenRouter", kind: "cloud", url: "https://openrouter.ai/api/v1", model: "openai/gpt-4o-mini", agent: "other", prefix: "or" },
+  ollama: { label: "Ollama (bu bilgisayarda, anahtarsız)", kind: "local", url: "http://127.0.0.1:11434/v1", model: "llama3.1", agent: "other", prefix: "yerel" },
+  custom: { label: "Başka (OpenAI uyumlu adres)", kind: "cloud", url: "", model: "", agent: "other", prefix: "ai" },
+};
+
+function easyFreeName(prefix) {
+  const taken = new Set((state.data.agents || []).map((a) => a.agent_id));
+  for (let i = 1; i < 100; i++) if (!taken.has(prefix + i)) return prefix + i;
+  return prefix + Date.now() % 1000;
+}
+
+function easyPick() {
+  const preset = EASY_PRESETS[$("ezProvider").value];
+  $("ezName").value = easyFreeName(preset.prefix);
+  $("ezModel").value = preset.model;
+  $("ezUrl").value = preset.url;
+  $("ezUrlRow").classList.toggle("hidden", $("ezProvider").value !== "custom");
+  $("ezKey").placeholder = preset.kind === "local" ? "gerekmez (boş bırak)" : "xai-… / sk-… gibi uzun anahtar";
+}
+
+async function easyAdd(ev) {
+  ev.preventDefault();
+  const status = $("ezStatus");
+  if (!state.approvalToken) { status.textContent = "Önce Onaylar sekmesinden kullanıcı tokenını gir (kurulu uygulamada hazır gelir)."; return; }
+  const preset = EASY_PRESETS[$("ezProvider").value];
+  const name = $("ezName").value.trim().toLowerCase();
+  const secret = $("ezKey").value.trim();
+  if (!AGENT_NAME_RE.test(name)) { status.textContent = "Ad 2-20 karakter: a-z, 0-9, - veya _ (harfle başlar)."; return; }
+  if (preset.kind === "cloud" && !secret) { status.textContent = "API anahtarını yukarıdaki kutuya yapıştır."; return; }
+  if (!$("ezUrl").value.trim() || !$("ezModel").value.trim()) { status.textContent = "Adres ve model boş olamaz."; return; }
+  const body = { name, kind: preset.kind, base_url: $("ezUrl").value.trim(), model: $("ezModel").value.trim(), enabled: true };
+  if (secret) body.api_key = secret;
+  $("ezKey").value = ""; // the secret leaves the form before anything is sent, success or not
+  const button = $("ezAddBtn");
+  button.disabled = true; // no double submit
+  status.textContent = "Ekleniyor…";
+  try {
+    await approvalCall(state.approvalToken, "/ai/accounts", { method: "POST", body });
+    touchApprovalToken();
+    await api("/agents", { method: "POST", body: { name, kind: preset.agent, role: "", provider: name } });
+    status.textContent = "Ekleniyor… hesap hazır, deneniyor";
+    let verdict = "";
+    try {
+      const t = await approvalCall(state.approvalToken, "/ai/providers/" + name + "/test", { method: "POST", body: {} });
+      verdict = t && t.ok ? "Çalışıyor (" + t.latency_ms + " ms)." : "Eklendi ama deneme başarısız: " + ((t && t.error) || "bilinmeyen hata") + ". Model adını ya da anahtarı kontrol et.";
+    } catch (e) { verdict = "Eklendi ama deneme yapılamadı: " + (e.message || "hata"); }
+    status.textContent = name + " eklendi. " + verdict;
+    toast(name + " eklendi");
+    easyPick();
+  } catch (e) {
+    status.textContent = "Eklenemedi: " + (e.message || "hata");
+    toast(e.message || "İşlem başarısız", true);
+  } finally {
+    button.disabled = false;
+    refresh();
+    refreshAi();
+  }
+}
+
 function renderAll() {
   renderStop();
   renderAgents();
@@ -1232,6 +1301,10 @@ function init() {
     refreshApprovals();
   });
   $("aiAddForm").addEventListener("submit", aiAdd);
+  $("ezProvider").replaceChildren(...Object.entries(EASY_PRESETS).map(([key, p]) => el("option", { value: key, text: p.label })));
+  $("ezProvider").addEventListener("change", easyPick);
+  $("easyForm").addEventListener("submit", easyAdd);
+  easyPick();
   $("agentForm").addEventListener("submit", agentAdd);
   $("notifyBtn").addEventListener("click", enableNotifications);
   renderNotify();

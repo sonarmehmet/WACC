@@ -257,6 +257,16 @@ pre.raw { margin: 6px 0; padding: 8px 10px; max-height: 260px; overflow: auto; b
 .toast { position: fixed; right: 18px; bottom: 18px; max-width: min(420px, calc(100vw - 32px)); padding: 10px 14px; border-radius: 10px; background: rgba(10, 18, 22, 0.96); color: var(--text); border: 1px solid var(--accent-glow); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6), 0 0 22px var(--accent-glow); z-index: 80; }
 .toast.error { border-color: var(--bad); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6), 0 0 22px rgba(255, 90, 106, 0.4); }
 
+.adv { margin-top: 14px; }
+.adv summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+.voice-log { width: calc(100% - 32px); max-height: 74px; overflow-y: auto; font-size: 12px; color: var(--muted); margin: 4px 16px 0; flex-shrink: 0; }
+.voice-log div { margin: 2px 0; }
+.voice-log .me { color: #89c2ff; }
+.voice-log .bot { color: var(--accent); }
+.cmd-row { display: flex; gap: 8px; width: calc(100% - 32px); margin: 8px 16px 0; flex-shrink: 0; }
+.ctrl-btn.active { color: var(--accent); border-color: var(--accent); box-shadow: 0 0 18px var(--accent-glow); }
+.ctrl-btn.listening { color: #04140f; background: var(--accent); }
+
 /* --------------------------------------------------------------------- modal */
 .modal-overlay { position: fixed; inset: 0; background: rgba(2, 4, 5, 0.75); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; z-index: 50; }
 .modal { position: relative; background: rgba(10, 18, 22, 0.97); border: 1px solid var(--panel-border); border-radius: 16px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 40px var(--accent-glow); padding: 22px; width: 440px; max-width: calc(100vw - 28px); max-height: 80vh; overflow-y: auto; }
