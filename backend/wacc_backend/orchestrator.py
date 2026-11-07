@@ -91,30 +91,83 @@ class OpenAICompatProvider(Provider):
     def __repr__(self):
         return f"OpenAICompatProvider(name={self.name!r}, kind={self.kind!r}, model={self.model!r})"
 
-    def complete(self, prompt, system, max_tokens):
-        messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
-        body = json.dumps({"model": self.model, "messages": messages, "max_tokens": max_tokens}).encode()
-        req = urllib.request.Request(self.base_url + "/chat/completions", data=body, method="POST")
-        req.add_header("Content-Type", "application/json")
-        if self._api_key:
-            req.add_header("Authorization", "Bearer " + self._api_key)
+    def _opener(self):
         # No redirects: urllib keeps the Authorization header when it follows one, which would hand the API
         # key to whatever address an (untrusted or compromised) endpoint redirects to.
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({} if self.kind == LOCAL else None),
-                                             _NoRedirect())
+        return urllib.request.build_opener(urllib.request.ProxyHandler({} if self.kind == LOCAL else None), _NoRedirect())
+
+    def _call(self, path, body=None):
+        req = urllib.request.Request(self.base_url + path, data=json.dumps(body).encode() if body is not None else None,
+                                     method="POST" if body is not None else "GET")
+        if body is not None:
+            req.add_header("Content-Type", "application/json")
+        if self._api_key:
+            req.add_header("Authorization", "Bearer " + self._api_key)
+        with self._opener().open(req, timeout=self.timeout) as resp:
+            return json.loads(resp.read(5_000_000))
+
+    def complete(self, prompt, system, max_tokens):
+        messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
+        body = {"model": self.model, "messages": messages, "max_tokens": max_tokens}
         try:
-            with opener.open(req, timeout=self.timeout) as resp:
-                data = json.loads(resp.read(5_000_000))
+            try:
+                data = self._call("/chat/completions", body)
+            except urllib.error.HTTPError as exc:
+                detail = error_detail(exc)
+                # Newer models (OpenAI o-series/gpt-5, some reasoning models) only accept max_completion_tokens.
+                if exc.code == 400 and "max_tokens" in detail.lower():
+                    body["max_completion_tokens"] = body.pop("max_tokens")
+                    data = self._call("/chat/completions", body)
+                else:
+                    raise
             text = data["choices"][0]["message"]["content"] or ""
             usage = data.get("usage") or {}
             return Completion(text, int(usage.get("prompt_tokens") or estimate_tokens(prompt)),
                               int(usage.get("completion_tokens") or estimate_tokens(text)), self.model)
         except urllib.error.HTTPError as exc:
-            raise ProviderError(f"{self.name}: HTTP {exc.code}")
+            detail = error_detail(exc)
+            raise ProviderError(f"{self.name}: HTTP {exc.code}" + (f" ({detail})" if detail else ""))
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             raise ProviderError(f"{self.name}: unreachable ({type(exc).__name__})")
         except (ValueError, KeyError, IndexError, TypeError):
             raise ProviderError(f"{self.name}: malformed response")
+
+
+def error_detail(exc) -> str:
+    """The provider's own error message (e.g. 'model not found'), scrubbed of anything key-like and short."""
+    cached = getattr(exc, "_wacc_detail", None)
+    if cached is not None:  # the body can be read only once
+        return cached
+    exc._wacc_detail = ""
+    try:
+        raw = exc.read(4000)
+        data = json.loads(raw)
+        err = data.get("error", data) if isinstance(data, dict) else data
+        msg = err.get("message") if isinstance(err, dict) else err
+        if not msg and isinstance(data, dict):
+            msg = data.get("detail") or data.get("code")
+        exc._wacc_detail = scrub(str(msg or ""))[:160].replace("\n", " ")
+    except Exception:
+        pass
+    return exc._wacc_detail
+
+
+def discover_models(base_url: str, kind: str, api_key: Optional[str], timeout: int = 20) -> List[str]:
+    """Ask an OpenAI-compatible endpoint which models this key may use (GET /models). The key is only used for this
+    one call and is not stored. Raises ProviderError with a readable reason (wrong key, wrong address...)."""
+    probe = OpenAICompatProvider("probe", kind, base_url, "-", api_key=api_key, timeout=timeout)
+    try:
+        data = probe._call("/models")
+        ids = sorted({str(m["id"]) for m in (data.get("data") if isinstance(data, dict) else data) or [] if m.get("id")})
+    except urllib.error.HTTPError as exc:
+        detail = error_detail(exc)
+        hint = " (API anahtarı geçersiz ya da bu adres için değil)" if exc.code in (401, 403) else ""
+        raise ProviderError(f"HTTP {exc.code}{hint}" + (f": {detail}" if detail else ""))
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise ProviderError(f"adrese ulaşılamadı ({type(exc).__name__})")
+    except (ValueError, KeyError, TypeError, AttributeError):
+        raise ProviderError("adres model listesi vermedi (OpenAI uyumlu değil)")
+    return ids
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -159,7 +212,7 @@ def build_providers(env: Mapping[str, str]) -> List[Provider]:
     return providers
 
 
-_SECRET_RE = re.compile(r"(sk-[A-Za-z0-9_-]{8,}|Bearer\s+\S+|api[_-]?key\s*[=:]\s*\S+)", re.I)
+_SECRET_RE = re.compile(r"((?:sk|xai|gsk|pk|or)[-_][A-Za-z0-9_-]{8,}|Bearer\s+\S+|api[_-]?key\s*[=:]\s*\S+)", re.I)
 
 
 def scrub(text: str) -> str:

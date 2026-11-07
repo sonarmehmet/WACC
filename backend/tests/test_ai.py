@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from wacc_backend.memory import Memory  # noqa: E402
 from wacc_backend.orchestrator import (  # noqa: E402
     CLOUD, LOCAL, MockProvider, OpenAICompatProvider, Orchestrator, OrchestratorError,
-    ProviderError, build_providers, scrub, validate_base_url)
+    ProviderError, build_providers, discover_models, scrub, validate_base_url)
 from wacc_backend.storage import Storage, StorageError  # noqa: E402
 
 
@@ -139,10 +139,29 @@ class FakeLLM(BaseHTTPRequestHandler):
     mode = "ok"
     seen = {}
 
+    def _json(self, code, payload):
+        raw = json.dumps(payload).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def do_GET(self):
+        FakeLLM.seen = {"path": self.path, "auth": self.headers.get("Authorization")}
+        if FakeLLM.mode == "401":
+            return self._json(401, {"error": {"message": "Incorrect API key provided: xai-SECRETSECRET12345"}})
+        if FakeLLM.mode == "nomodels":
+            return self._json(404, {"error": "no such route"})
+        self._json(200, {"data": [{"id": "grok-3"}, {"id": "grok-4.7"}, {"id": "grok-imagine-image"}]})
+
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         FakeLLM.seen = {"path": self.path, "auth": self.headers.get("Authorization"), "model": body["model"],
-                        "roles": [m["role"] for m in body["messages"]]}
+                        "roles": [m["role"] for m in body["messages"]], "keys": sorted(body)}
+        if FakeLLM.mode == "400model":
+            return self._json(400, {"error": {"message": "The model grok-4 does not exist or is not available"}})
+        if FakeLLM.mode == "400max" and "max_tokens" in body:
+            return self._json(400, {"error": {"message": "Unsupported parameter: 'max_tokens'. Use 'max_completion_tokens'."}})
         if FakeLLM.mode == "500":
             self.send_response(500)
             self.end_headers()
@@ -186,6 +205,42 @@ class OpenAICompatTests(Base):
         for mode in ("500", "garbage"):
             FakeLLM.mode = mode
             self.assertEqual(o.complete("ping")["provider"], "backup")
+
+    def test_error_shows_the_providers_reason_without_secrets(self):
+        FakeLLM.mode = "400model"
+        p = OpenAICompatProvider("grok1", LOCAL, self.url, "grok-4", api_key="xai-SECRETSECRET12345")
+        with self.assertRaises(ProviderError) as cm:
+            p.complete("x", None, 10)
+        self.assertIn("HTTP 400", str(cm.exception))
+        self.assertIn("does not exist", str(cm.exception))  # the reason the person can act on
+        FakeLLM.mode = "401"
+        with self.assertRaises(ProviderError) as cm:
+            discover_models(self.url, LOCAL, "xai-SECRETSECRET12345")
+        self.assertNotIn("SECRETSECRET", str(cm.exception))  # keys echoed back by a provider are scrubbed
+
+    def test_models_that_only_accept_max_completion_tokens_are_retried(self):
+        FakeLLM.mode = "400max"
+        p = OpenAICompatProvider("m", LOCAL, self.url, "m")
+        out = p.complete("ping", None, 10)
+        self.assertEqual(out.text, "pong")
+        self.assertIn("max_completion_tokens", FakeLLM.seen["keys"])
+        self.assertNotIn("max_tokens", FakeLLM.seen["keys"])
+
+    def test_discover_lists_models_and_reports_a_wrong_key_clearly(self):
+        FakeLLM.mode = "ok"
+        self.assertEqual(discover_models(self.url, LOCAL, "k"), ["grok-3", "grok-4.7", "grok-imagine-image"])
+        self.assertEqual(FakeLLM.seen["path"], "/v1/models")
+        self.assertEqual(FakeLLM.seen["auth"], "Bearer k")
+        FakeLLM.mode = "401"
+        with self.assertRaises(ProviderError) as cm:
+            discover_models(self.url, LOCAL, "bad")
+        self.assertIn("401", str(cm.exception))
+        self.assertIn("anahtar", str(cm.exception).lower())
+        FakeLLM.mode = "nomodels"
+        with self.assertRaises(ProviderError):
+            discover_models(self.url, LOCAL, None)
+        with self.assertRaises(ValueError):
+            discover_models("http://example.com/v1", "cloud", "k")  # cloud must be https
 
     def test_unreachable_is_provider_error(self):
         p = OpenAICompatProvider("dead", LOCAL, "http://127.0.0.1:1/v1", "m", timeout=2)

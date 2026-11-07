@@ -821,8 +821,11 @@ class FrontendSourceTests(unittest.TestCase):
         and may trigger the emergency stop. Approvals and resume stay click-only."""
         source = (WEB / "public" / "voice.js").read_text(encoding="utf-8")
         for forbidden in ("approvalToken", "approvalCall", "/approve", "/deny", "/system/resume", "/exec/resume",
-                          "innerHTML", "eval(", "localStorage", "sessionStorage", "X-WACC-Token"):
+                          "innerHTML", "eval(", "sessionStorage", "X-WACC-Token"):
             self.assertNotIn(forbidden, source, forbidden)
+        # the only thing it may remember is the chosen voice name, speed and mute (nothing secret)
+        self.assertEqual(source.count("localStorage"), 2)
+        self.assertIn('const PREF_KEY = "wacc.voice";', source)
         self.assertIn("/system/stop", source)  # the only write it may trigger: the safe direction
 
     def test_ai_chat_output_is_text_only_and_never_acted_on(self):
@@ -842,6 +845,12 @@ class FrontendSourceTests(unittest.TestCase):
         source = (WEB / "public" / "app.js").read_text(encoding="utf-8")
         self.assertLess(source.index('$("ezKey").value = ""; // the secret leaves'),
                         source.index('await approvalCall(state.approvalToken, "/ai/accounts"'))
+
+    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    def test_model_picker_takes_a_model_that_exists(self):
+        result = subprocess.run(["node", str(WEB / "tests" / "model_pick_cases.js")], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), [])
 
     @unittest.skipUnless(shutil.which("node"), "node not installed")
     def test_voice_command_parser(self):

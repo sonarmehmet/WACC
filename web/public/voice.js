@@ -1,7 +1,7 @@
 "use strict";
 
 /* Voice and typed commands for the control room. Speech comes from the browser's own speech
- * recognition (Edge/Chrome); this file never sends audio anywhere itself and never holds a token.
+ * recognition and synthesis (Edge/Chrome); this file never sends audio anywhere itself and never holds a token.
  *
  * Safety rule: what is heard is untrusted (a TV, a video call, someone else in the room). So voice may
  * only navigate, read out the status, FILL IN forms (the person still presses the button) and trigger the
@@ -26,18 +26,104 @@
     logBox.scrollTop = logBox.scrollHeight;
   }
 
-  function say(text, speak) {
-    line("bot", text);
-    if (speak === false || !synth) return;
+  /* ------------------------------------------------------------- the voice */
+  // A warm, natural Turkish woman's voice. Edge ships "Microsoft Emel Online (Natural)" (neural, much better than
+  // the old robotic voices); Chrome has "Google Türkçe"; other systems have their own. The pick is automatic and
+  // can be changed in Ayarlar. Only a voice NAME and a speed are remembered (nothing secret).
+  const PREF_KEY = "wacc.voice";
+  const FEMALE_FIRST = [/emel/i, /(natural|neural).*(turk|türk)|(turk|türk).*(natural|neural)/i, /google.*(turk|türk)/i,
+                        /yelda|filiz|seda|sevil|zeynep|damla|aylin|tr-tr.*female/i];
+  const MALE = /tolga|ahmet|cem|kerem|male/i;
+  let voice = null;
+  let rate = 1;
+  let muted = false;
+
+  function pref() {
+    try { return JSON.parse(window.localStorage.getItem(PREF_KEY) || "{}"); } catch (e) { return {}; }
+  }
+  function savePref(update) {
+    try { window.localStorage.setItem(PREF_KEY, JSON.stringify(Object.assign(pref(), update))); } catch (e) { /* ignore */ }
+  }
+  function turkishVoices() {
+    return (synth ? synth.getVoices() : []).filter((v) => /^tr/i.test(v.lang) || /turk|türk/i.test(v.name));
+  }
+  function pickVoice() {
+    const list = turkishVoices();
+    const saved = pref();
+    rate = typeof saved.rate === "number" ? saved.rate : 1;
+    muted = Boolean(saved.muted);
+    voice = list.find((v) => v.name === saved.name)
+      || FEMALE_FIRST.map((re) => list.find((v) => re.test(v.name))).find(Boolean)
+      || list.find((v) => !MALE.test(v.name))
+      || list[0] || null;
+    fillVoiceControls(list);
+  }
+  function fillVoiceControls(list) {
+    const select = $("voiceSelect");
+    if (!select) return;
+    select.replaceChildren(...(list.length ? list : [{ name: "(Türkçe ses bulunamadı)" }]).map((v) => {
+      const o = document.createElement("option");
+      o.value = v.name;
+      o.textContent = v.name;
+      return o;
+    }));
+    if (voice) select.value = voice.name;
+    $("voiceRate").value = String(rate);
+    $("voiceMute").checked = muted;
+  }
+
+  // Speak like a person: no markdown noise, sentence by sentence (long single utterances get cut off in Chromium).
+  function cleanForSpeech(text) {
+    return String(text)
+      .replace(/```[\s\S]*?```/g, " ")
+      .replace(/https?:\/\/\S+/g, " bağlantı ")
+      .replace(/[*_#`>~|]+/g, " ")
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+      .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  function sentences(text) {
+    const out = [];
+    for (const part of (text.match(/[^.!?…]+[.!?…]*/g) || [text])) {
+      let chunk = part.trim();
+      while (chunk.length > 180) {
+        const cut = chunk.lastIndexOf(",", 180) > 60 ? chunk.lastIndexOf(",", 180) + 1 : chunk.lastIndexOf(" ", 180);
+        out.push(chunk.slice(0, cut > 0 ? cut : 180).trim());
+        chunk = chunk.slice(cut > 0 ? cut : 180).trim();
+      }
+      if (chunk) out.push(chunk);
+    }
+    return out;
+  }
+
+  function speak(text, done) {
+    if (!synth || muted) { if (done) done(); return; }
     try {
       if (rec) rec.abort(); // do not hear ourselves
       synth.cancel();
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = "tr-TR";
+      const parts = sentences(cleanForSpeech(text).slice(0, 700));
+      if (!parts.length) { if (done) done(); return; }
       speaking = true;
-      u.onend = u.onerror = () => { speaking = false; if (wantLive) startRec(true); };
-      synth.speak(u);
-    } catch (e) { speaking = false; }
+      parts.forEach((part, i) => {
+        const u = new SpeechSynthesisUtterance(part);
+        u.lang = "tr-TR";
+        if (voice) u.voice = voice;
+        u.rate = rate;
+        u.pitch = 1.04;
+        u.volume = 1;
+        if (i === parts.length - 1) {
+          u.onend = u.onerror = () => { speaking = false; if (done) done(); if (wantLive) startRec(true); };
+        }
+        synth.speak(u);
+      });
+    } catch (e) { speaking = false; if (done) done(); }
+  }
+
+  function say(text, voiced) {
+    line("bot", text);
+    if (voiced === false) return;
+    speak(text);
   }
 
   function agentNames() { return (state.data.agents || []).map((a) => a.agent_id); }
@@ -187,6 +273,25 @@
     const text = input.value.trim();
     input.value = "";
     if (text) run(text, false);
+  });
+  if (synth) {
+    pickVoice();
+    synth.addEventListener("voiceschanged", pickVoice); // voices load asynchronously
+  }
+  $("voiceSelect").addEventListener("change", () => {
+    voice = turkishVoices().find((v) => v.name === $("voiceSelect").value) || voice;
+    savePref({ name: voice && voice.name });
+  });
+  $("voiceRate").addEventListener("input", () => { rate = Number($("voiceRate").value) || 1; savePref({ rate }); });
+  $("voiceMute").addEventListener("change", () => {
+    muted = $("voiceMute").checked;
+    savePref({ muted });
+    if (muted && synth) synth.cancel();
+  });
+  $("voiceTest").addEventListener("click", () => {
+    const wasMuted = muted;
+    muted = false;
+    speak("Merhaba, ben WACC. Seni duyuyorum, nasıl yardımcı olabilirim?", () => { muted = wasMuted; });
   });
   if (!Recognition) $("micBtn").title = "Bu pencerede ses tanıma yok: yazarak komut ver";
   say("Hazır. Mikrofona bas ya da yaz: 'yardım'.", false);

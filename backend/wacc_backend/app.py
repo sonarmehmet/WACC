@@ -22,7 +22,7 @@ from .storage import Storage, StorageError
 STATUS_MAP = {"NOT_FOUND": 404, "DUPLICATE": 409, "FORBIDDEN": 403, "BAD_STATE": 409,
               "PROJECT_ARCHIVED": 409, "DISABLED": 409, "BUDGET_EXCEEDED": 429, "EMERGENCY_STOP": 423,
               "NOT_APPROVED": 403, "HASH_MISMATCH": 403,
-              "NO_PROVIDER": 503, "ALL_FAILED": 502, "NOT_REMOVABLE": 409, "TOO_MANY": 409, "TOO_MANY_PENDING": 429}
+              "NO_PROVIDER": 503, "ALL_FAILED": 502, "PROVIDER_ERROR": 502, "BAD_ADDRESS": 400, "NOT_REMOVABLE": 409, "TOO_MANY": 409, "TOO_MANY_PENDING": 429}
 
 
 class ProjectIn(BaseModel):
@@ -108,6 +108,12 @@ class AccountIn(BaseModel):
     price_in_per_1k: Optional[float] = None
     price_out_per_1k: Optional[float] = None
     enabled: bool = True
+
+
+class DiscoverIn(BaseModel):
+    kind: str
+    base_url: str
+    api_key: Optional[str] = None
 
 
 class MemoryIn(BaseModel):
@@ -325,6 +331,19 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
             orchestrator.add_account(to_provider(acc), acc["enabled"])
             return public_view(acc)
         return run(add)
+
+    # Which models does this key see? One transient call; the key is not stored. Lets the panel pick a model name that
+    # really exists instead of a guess that has gone out of date.
+    @app.post("/ai/discover", dependencies=[Depends(user_only)])
+    def ai_discover(body: DiscoverIn):
+        def discover():
+            try:
+                return {"models": discover_models(body.base_url, body.kind, body.api_key)}
+            except ValueError as exc:
+                raise OrchestratorError("BAD_ADDRESS", str(exc))
+            except ProviderError as exc:
+                raise OrchestratorError("PROVIDER_ERROR", scrub(str(exc)))
+        return run(discover)
 
     @app.delete("/ai/accounts/{name}", dependencies=[Depends(user_only)])
     def ai_account_remove(name: str):

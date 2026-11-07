@@ -44,7 +44,7 @@ BACKEND_GET_PATHS = frozenset({
 _AI_NAME = r"[a-z0-9][a-z0-9_-]{1,30}"
 BACKEND_POST_PATHS = re.compile(
     r"^(?:/exec/(?:approvals/[0-9]{1,9}/(?:approve|deny)|stop|resume)"
-    r"|/ai/accounts|/ai/complete"
+    r"|/ai/accounts|/ai/complete|/ai/discover"
     r"|/ai/providers/" + _AI_NAME + r"/(?:enabled|test))$")
 # Hub: removing a user-managed agent. The Hub alone decides (user token only; built-ins are refused).
 HUB_DELETE_PATHS = re.compile(r"^/api/agents/[a-z][a-z0-9_-]{1,19}$")
