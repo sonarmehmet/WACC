@@ -25,6 +25,26 @@ class AgentAccountTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_overview_survives_a_switched_off_agent(self):
+        """Regression: switching claude1 off made GET /agents answer 500, and the panel then said 'Hub unreachable'."""
+        self.hub.send_message("claude2", "claude1", "STATUS_UPDATE", "hi", "body", response_required=True)
+        self.hub.set_agent_enabled("user", "claude1", False)
+        rows = {a["agent_id"]: a for a in self.hub.overview()}
+        self.assertIn("claude1", rows)  # still listed, so it can be switched back on
+        self.assertFalse(rows["claude1"]["enabled"])
+        self.assertEqual((rows["claude1"]["unread"], rows["claude1"]["pending_responses"], rows["claude1"]["awaiting_reply"]), (0, 0, 0))
+        self.assertTrue(rows["claude2"]["enabled"])  # the others are untouched
+        self.hub.set_agent_enabled("user", "claude1", True)
+        self.assertTrue({a["agent_id"]: a for a in self.hub.overview()}["claude1"]["enabled"])
+
+    def test_every_builtin_and_custom_agent_can_be_off_at_once(self):
+        self.hub.register_agent("user", "gpt1", "chatgpt")
+        for name in ("claude1", "claude2", "claude3", "gemini", "gpt1"):
+            self.hub.set_agent_enabled("user", name, False)
+        rows = {a["agent_id"]: a for a in self.hub.overview()}
+        self.assertTrue({"claude1", "claude2", "claude3", "gemini", "gpt1"} <= set(rows))
+        self.assertTrue(all(not rows[n]["enabled"] for n in ("claude1", "claude2", "claude3", "gemini", "gpt1")))
+
     def code(self, fn, *a, **kw):
         with self.assertRaises(HubError) as cm:
             fn(*a, **kw)

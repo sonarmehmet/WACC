@@ -689,6 +689,15 @@ class Hub:
                                        "ORDER BY timestamp DESC LIMIT 1", (aid,))
             a["online"] = bool(a["last_seen"]) and self._age(a["last_seen"], now) <= ONLINE_WINDOW
             a["last_sent"] = last_sent
+            if not a["enabled"]:
+                # A switched-off agent has no live queues (the per-agent calls below refuse it). It must still be
+                # listed so it can be switched back on: one disabled agent may never break the whole overview.
+                a.update(pending_responses=0, awaiting_reply=0, unread=0)
+                tasks = self.list_tasks(owner=aid)
+                a["active_tasks"] = len([t for t in tasks if t["status"] in ACTIVE_TASK_STATUSES])
+                a["blocked_tasks"] = len([t for t in tasks if t["status"] == "BLOCKED"])
+                out.append(a)
+                continue
             a["pending_responses"] = len(self.pending_responses(aid))
             a["awaiting_reply"] = len(self.awaiting_reply(aid))
             a["unread"] = len(self.inbox(aid, unread_only=True, limit=1000))
