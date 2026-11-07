@@ -1,6 +1,7 @@
 /* WACC control room: dark glass panels, neon accent. Three columns: clock+meters | radar | work area. */
 :root {
   --bg: #05070a;
+  --panel: #0b1317;
   --panel-bg: rgba(12, 20, 24, 0.72);
   --panel-border: rgba(55, 230, 179, 0.16);
   --field: rgba(255, 255, 255, 0.04);
