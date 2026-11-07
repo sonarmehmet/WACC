@@ -8,7 +8,10 @@ Used by the Windows installer (WACC.exe). No tokens to copy: the window opens al
 import argparse
 import json
 import os
+import secrets
+import shutil
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -170,6 +173,23 @@ def selftest(out_path: str) -> int:
         result["checks"]["hub_has_builtin_agents"] = status == 200 and len(agents) >= 4
         result["checks"]["panel_proxies_hub"] = call("http://%s:%d/api/whoami" % (HOST, PANEL_PORT), t["hub"])[1] == {"agent": "user"}
         result["checks"]["data_in_expected_dir"] = (data_dir() / "hub.db").exists() and (data_dir() / "tokens.json").exists()
+        import serve
+        quit_called = []
+        serve.arm_desktop("selftest-key-selftest-key", t, lambda: quit_called.append(1))
+        panel = "http://%s:%d" % (HOST, PANEL_PORT)
+        got = call(panel + "/_wacc/handoff?k=selftest-key-selftest-key")[1]
+        result["checks"]["window_handoff_gives_tokens"] = got == {"hub": t["hub"], "backend": t["backend"], "user": t["user"]}
+        result["checks"]["window_handoff_is_single_use"] = False
+        try:
+            call(panel + "/_wacc/handoff?k=selftest-key-selftest-key")
+        except urllib.error.HTTPError as e:
+            result["checks"]["window_handoff_is_single_use"] = e.code == 403
+        result["checks"]["window_quit_needs_user_token"] = False
+        try:
+            call(panel + "/_wacc/quit", t["hub"], "POST", {})
+        except urllib.error.HTTPError as e:
+            result["checks"]["window_quit_needs_user_token"] = e.code == 403 and not quit_called
+        result["checks"]["window_ping_ok"] = call(panel + "/_wacc/ping", "", "POST", {})[0] == 200
         result["ok"] = all(result["checks"].values())
     except Exception as exc:  # report, never hang
         result["error"] = f"{type(exc).__name__}: {exc}"
@@ -179,11 +199,70 @@ def selftest(out_path: str) -> int:
     return 0 if result["ok"] else 1
 
 
+def find_browser():
+    """Edge (on every Windows 10/11) or Chrome: a Chromium browser that can show the panel as its own app window."""
+    candidates = []
+    for env in ("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"):
+        base = os.environ.get(env)
+        if base:
+            candidates += [Path(base) / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+                           Path(base) / "Google" / "Chrome" / "Application" / "chrome.exe"]
+    for path in candidates:
+        if path.is_file():
+            return str(path)
+    for name in ("microsoft-edge", "google-chrome", "chromium", "chromium-browser"):
+        found = shutil.which(name)
+        if found:
+            return found
+    return None
+
+
+def open_window(services, data, quit_event):
+    """Open the control-room panel in its own window, already connected. Returns the browser process,
+    or None when no suitable browser exists (the caller then falls back to the Tk window)."""
+    browser = find_browser()
+    if not browser or os.environ.get("WACC_UI") == "tk":
+        return None
+    import serve
+    key = secrets.token_urlsafe(24)  # one-time: the page trades it for the tokens, then it is dead
+    serve.arm_desktop(key, services.tokens, quit_event.set)
+    profile = data.parent / "window-profile"
+    profile.mkdir(parents=True, exist_ok=True)
+    args = [browser, "--app=http://%s:%d/?k=%s" % (HOST, PANEL_PORT, key), "--user-data-dir=%s" % profile,
+            "--window-size=1360,860", "--no-first-run", "--no-default-browser-check", "--disable-features=Translate"]
+    try:
+        return subprocess.Popen(args)
+    except OSError as exc:
+        print("window start failed: %s" % exc, file=sys.stderr)
+        return None
+
+
+def wait_for_window(proc, quit_event):
+    """Block until the window is closed (or the app's own close button was used)."""
+    import serve
+    started = time.monotonic()
+    while not quit_event.is_set():
+        time.sleep(0.5)
+        if proc.poll() is not None:
+            if time.monotonic() - started > 15:
+                break  # the person closed the window
+            # the browser handed the window to another process and exited: follow the page's heartbeat instead
+            if time.time() - serve.last_ping() > 150:
+                break
+    if proc.poll() is None:
+        proc.terminate()
+
+
 def run_gui() -> int:
     services = Services()
     try:
         services.start()
-        from wacc_desktop.ui import App
+        quit_event = threading.Event()
+        proc = open_window(services, data_dir(), quit_event)
+        if proc is not None:
+            wait_for_window(proc, quit_event)
+            return 0
+        from wacc_desktop.ui import App  # no Chromium browser found: the plain Tk window still works
         App(preset=services.tokens).mainloop()
         return 0
     except Exception as exc:

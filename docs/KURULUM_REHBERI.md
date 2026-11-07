@@ -23,7 +23,7 @@ Python, Git, token, ayar: hiçbiri gerekmez.
 Bilmen gerekenler:
 - Hub, Backend ve web paneli WACC.exe'nin içinde çalışır. Pencereyi kapatınca hepsi durur.
 - Verilerin (veritabanı, token'lar, ajan çalışma klasörü) `%LOCALAPPDATA%\WACC` içinde durur. Kaldırırken silinmez. Dosya gezgininin adres çubuğuna `%LOCALAPPDATA%\WACC` yazıp Enter'a basarak açabilirsin.
-- Yapay zekâ modeli bağlamak için pencerede **Yapay Zeka** sekmesi (bkz. bölüm 9). Onay token'ı pencerede hazır, yazman gerekmez.
+- Yapay zekâ modeli bağlamak için pencerede **Yapay Zeka** sekmesi (bkz. bölüm 9). Onay token'ı pencerede hazır, yazman gerekmez. Pencere artık koyu "kontrol odası" görünümünde açılır (ortada radar, solda saat ve göstergeler, sağda sekmeler); bunun için bilgisayarında Microsoft Edge ya da Chrome olması yeter (Windows 10'da Edge hazır gelir). Kapatmak için pencereyi kapat ya da **UYGULAMAYI KAPAT** düğmesine bas. Tarayıcı bulunamazsa eski sade pencere açılır.
 - Kaldırmak: Windows **Ayarlar → Uygulamalar → WACC → Kaldır**.
 - "Port kullanımda" hatası görürsen WACC zaten açıktır (görev çubuğuna bak) ya da eski bir `start_wacc.bat` penceresi açıktır, kapat.
 - Depo private yapılınca bu indirme adresi için GitHub'a giriş yapman gerekir.

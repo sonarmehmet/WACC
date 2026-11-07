@@ -10,15 +10,18 @@ X-WACC-Token header and are never logged or stored here.
 """
 
 import argparse
+import hmac
 import json
 import mimetypes
 import os
 import re
+import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib import error as urlerror
 from urllib import request as urlrequest
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 PUBLIC = (Path(__file__).resolve().parent / "public").resolve()
 DEFAULT_HUB = os.environ.get("WACC_HUB_URL", "http://127.0.0.1:8765")
@@ -54,6 +57,24 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'se
 _OPENER = urlrequest.build_opener(urlrequest.ProxyHandler({}))
 
 
+# Desktop window hand-off (used only by the launcher, see launcher/wacc_launcher.py). The launcher opens the
+# panel in its own window with a one-time key in the address; the page trades that key for the tokens once
+# (so no token ever sits on a command line or in a file the browser keeps), then pings so the launcher
+# knows the window is still open. /_wacc/quit needs the user's approval token.
+_DESKTOP = {"nonce": None, "tokens": None, "quit_token": "", "on_quit": None, "last_ping": time.time()}
+_DESKTOP_LOCK = threading.Lock()
+
+
+def arm_desktop(nonce: str, tokens: dict, on_quit) -> None:
+    with _DESKTOP_LOCK:
+        _DESKTOP.update(nonce=nonce, tokens=dict(tokens), quit_token=tokens.get("user", ""), on_quit=on_quit,
+                        last_ping=time.time())
+
+
+def last_ping() -> float:
+    return _DESKTOP["last_ping"]
+
+
 def host_is_local(host_header: str) -> bool:
     """Reject foreign Host headers (DNS-rebinding guard)."""
     host = (host_header or "").strip()
@@ -73,7 +94,8 @@ def make_handler(hub_url: str, backend_url: str = DEFAULT_BACKEND):
 
         # ------------------------------------------------------------ helpers
         def log_message(self, fmt, *args):  # request line only; headers (token) are never printed
-            print("[web] %s %s" % (self.address_string(), fmt % args))
+            line = re.sub(r"(/_wacc/\w+)\?\S*", r"\1", fmt % args)  # the one-time key stays out of the log too
+            print("[web] %s %s" % (self.address_string(), line))
 
         def _send(self, status, body: bytes, content_type="application/json", extra=None):
             self.send_response(status)
@@ -109,6 +131,8 @@ def make_handler(hub_url: str, backend_url: str = DEFAULT_BACKEND):
                 return self._proxy("GET")
             if self.path == "/backend" or self.path.startswith("/backend/"):
                 return self._backend("GET")
+            if urlsplit(self.path).path == "/_wacc/handoff":
+                return self._handoff()
             self._static()
 
         def do_POST(self):
@@ -118,6 +142,11 @@ def make_handler(hub_url: str, backend_url: str = DEFAULT_BACKEND):
                 return self._proxy("POST")
             if self.path.startswith("/backend/"):
                 return self._backend("POST")
+            if self.path == "/_wacc/ping":
+                _DESKTOP["last_ping"] = time.time()
+                return self._json(200, {"ok": True})
+            if self.path == "/_wacc/quit":
+                return self._quit()
             self._json(405, {"detail": "Method not allowed"})
 
         def do_PUT(self):
@@ -133,6 +162,30 @@ def make_handler(hub_url: str, backend_url: str = DEFAULT_BACKEND):
             if HUB_DELETE_PATHS.fullmatch(self.path):
                 return self._proxy("DELETE")
             self._json(405, {"detail": "Method not allowed"})
+
+        def _handoff(self):
+            """One-time trade of the launcher's key for the tokens. Same-origin only, works once."""
+            site = self.headers.get("Sec-Fetch-Site")
+            key = (parse_qs(urlsplit(self.path).query).get("k") or [""])[0]
+            with _DESKTOP_LOCK:
+                nonce = _DESKTOP["nonce"]
+                ok = bool(nonce) and bool(key) and site in (None, "same-origin") and hmac.compare_digest(
+                    key.encode(), nonce.encode())
+                tokens = _DESKTOP["tokens"] if ok else None
+                if ok:
+                    _DESKTOP["nonce"] = None  # single use
+            if not tokens:
+                return self._json(403, {"detail": {"code": "NO_HANDOFF", "message": "Hand-off key invalid or used"}})
+            self._json(200, {k: tokens.get(k, "") for k in ("hub", "backend", "user")})
+
+        def _quit(self):
+            token = self.headers.get("X-WACC-Token", "")
+            with _DESKTOP_LOCK:
+                expected, on_quit = _DESKTOP["quit_token"], _DESKTOP["on_quit"]
+            if not (expected and on_quit and hmac.compare_digest(token.encode(), expected.encode())):
+                return self._json(403, {"detail": {"code": "FORBIDDEN", "message": "User token required"}})
+            self._json(200, {"ok": True})
+            threading.Thread(target=on_quit, daemon=True).start()
 
         def _static(self):
             rel = urlsplit(self.path).path.lstrip("/") or "index.html"

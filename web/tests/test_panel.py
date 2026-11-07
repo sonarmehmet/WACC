@@ -126,7 +126,7 @@ class PanelTests(unittest.TestCase):
 
     # ------------------------------------------------------------------- static
     def test_serves_panel_files_with_security_headers(self):
-        for path, needle in (("/", b"WACC Panel"), ("/app.js", b"X-WACC-Token"), ("/style.css", b"--accent")):
+        for path, needle in (("/", b"<title>WACC</title>"), ("/app.js", b"X-WACC-Token"), ("/hud.js", b"radar-canvas"), ("/style.css", b"--accent")):
             status, headers, raw = self.call("GET", path)
             self.assertEqual(status, 200, path)
             self.assertIn(needle, raw, path)
@@ -609,6 +609,76 @@ class BackendProxyTests(unittest.TestCase):
         self.assertEqual(body["detail"]["code"], "BACKEND_UNREACHABLE")
 
 
+class DesktopHandoffTests(unittest.TestCase):
+    """The installed app opens this panel in its own window; the page trades a one-time key for the tokens."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.panel = serve.create_server(0, "http://127.0.0.1:1", "http://127.0.0.1:1")
+        cls.port = cls.panel.server_address[1]
+        threading.Thread(target=cls.panel.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.panel.shutdown()
+        cls.panel.server_close()
+
+    def call(self, method, path, body=None, token=None, headers=None):
+        hdrs = dict(headers or {})
+        if token:
+            hdrs["X-WACC-Token"] = token
+        data = json.dumps(body) if body is not None else None
+        if data:
+            hdrs["Content-Type"] = "application/json"
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        try:
+            conn.request(method, path, body=data, headers=hdrs)
+            resp = conn.getresponse()
+            return resp.status, dict(resp.getheaders()), resp.read()
+        finally:
+            conn.close()
+
+    def setUp(self):
+        self.serve = serve
+        self.quit_calls = []
+        serve.arm_desktop("k" * 24, {"hub": "HUBTOK", "backend": "BETOK", "user": "USERTOK"}, lambda: self.quit_calls.append(1))
+
+    def test_key_works_once_and_gives_all_three_tokens(self):
+        status, _, raw = self.call("GET", "/_wacc/handoff?k=" + "k" * 24)
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(raw), {"hub": "HUBTOK", "backend": "BETOK", "user": "USERTOK"})
+        status, _, _ = self.call("GET", "/_wacc/handoff?k=" + "k" * 24)
+        self.assertEqual(status, 403)
+
+    def test_wrong_or_missing_key_and_cross_site_are_refused(self):
+        for path in ("/_wacc/handoff", "/_wacc/handoff?k=", "/_wacc/handoff?k=nope"):
+            self.assertEqual(self.call("GET", path)[0], 403, path)
+        status, _, _ = self.call("GET", "/_wacc/handoff?k=" + "k" * 24, headers={"Sec-Fetch-Site": "cross-site"})
+        self.assertEqual(status, 403)
+        status, _, _ = self.call("GET", "/_wacc/handoff?k=" + "k" * 24)  # a refused try must not burn the key
+        self.assertEqual(status, 200)
+
+    def test_foreign_host_is_refused(self):
+        status, _, _ = self.call("GET", "/_wacc/handoff?k=" + "k" * 24, headers={"Host": "evil.example"})
+        self.assertEqual(status, 403)
+
+    def test_quit_needs_the_user_token(self):
+        for token in (None, "HUBTOK", "wrong"):
+            self.assertEqual(self.call("POST", "/_wacc/quit", {}, token=token)[0], 403, token)
+        self.assertEqual(self.quit_calls, [])
+        self.assertEqual(self.call("POST", "/_wacc/quit", {}, token="USERTOK")[0], 200)
+        deadline = time.time() + 3
+        while not self.quit_calls and time.time() < deadline:
+            time.sleep(0.05)
+        self.assertEqual(self.quit_calls, [1])
+
+    def test_ping_updates_heartbeat_and_key_is_not_logged(self):
+        before = self.serve.last_ping()
+        time.sleep(0.02)
+        self.assertEqual(self.call("POST", "/_wacc/ping", {})[0], 200)
+        self.assertGreater(self.serve.last_ping(), before)
+
+
 class FrontendSourceTests(unittest.TestCase):
     def test_no_html_injection_sinks(self):
         source = (WEB / "public" / "app.js").read_text(encoding="utf-8")
@@ -692,11 +762,24 @@ class FrontendSourceTests(unittest.TestCase):
         self.assertNotIn("writeStore", source)
         self.assertIn("persistent === remember", source)
 
+    def test_csp_safe_markup_no_inline_style_or_handlers(self):
+        import re
+        html = (WEB / "public" / "index.html").read_text(encoding="utf-8")
+        self.assertIsNone(re.search(r"\sstyle\s*=", html), "inline style attribute (blocked by the CSP)")
+        self.assertIsNone(re.search(r"\son[a-z]+\s*=", html), "inline event handler (blocked by the CSP)")
+        self.assertIsNone(re.search(r"<script(?![^>]*\ssrc=)", html), "inline script (blocked by the CSP)")
+
+    def test_hud_is_display_only(self):
+        source = (WEB / "public" / "hud.js").read_text(encoding="utf-8")
+        for forbidden in ("fetch(", "XMLHttpRequest", "localStorage", "sessionStorage", "innerHTML", "eval(", "token ="):
+            self.assertNotIn(forbidden, source, forbidden)
+
     @unittest.skipUnless(shutil.which("node"), "node not installed")
     def test_javascript_parses(self):
-        result = subprocess.run(["node", "--check", str(WEB / "public" / "app.js")],
-                                capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
+        for name in ("app.js", "hud.js"):
+            result = subprocess.run(["node", "--check", str(WEB / "public" / name)],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, name + ": " + result.stderr)
 
 
 if __name__ == "__main__":

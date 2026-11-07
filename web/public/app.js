@@ -36,6 +36,7 @@ const state = {
   backendBusy: false,
   backendAgain: false,
   backendGen: 0,
+  desktop: false, // true inside the installed app's own window (tokens arrive through the one-time hand-off)
   approvalToken: "", // memory only: never written to any storage
   approvalTimer: null,
   approvalBusy: false,
@@ -622,7 +623,7 @@ function setApprovalToken(token) {
   state.approvalToken = token;
   state.approvalGen += 1;
   state.signatures.approvals = null;
-  if (token) {
+  if (token && !state.desktop) { // the installed app's own window keeps it for the whole session
     state.approvalTimer = setTimeout(() => {
       setApprovalToken("");
       toast("Onay token'ı hareketsizlikten dolayı silindi");
@@ -637,6 +638,28 @@ function setApprovalToken(token) {
 
 function touchApprovalToken() {
   if (state.approvalToken) setApprovalToken(state.approvalToken);
+}
+
+// Installed app: the launcher opened this window with a one-time key in the address. Trade it for the
+// tokens (once), keep them in memory only, and tell the launcher the window is alive.
+async function desktopHandoff() {
+  const key = new URLSearchParams(window.location.search).get("k");
+  if (!key) return;
+  window.history.replaceState(null, "", window.location.pathname); // the key leaves the address bar at once
+  try {
+    const res = await fetch("/_wacc/handoff?k=" + enc(key), { headers: { Accept: "application/json" } });
+    if (!res.ok) return;
+    const t = await res.json();
+    state.desktop = true;
+    state.token = t.hub;
+    state.backendToken = t.backend;
+    state.signatures = {};
+    $("quitBtn").classList.remove("hidden");
+    setApprovalToken(t.user);
+    backendTokenChanged();
+    refresh();
+    setInterval(() => { fetch("/_wacc/ping", { method: "POST" }).catch(() => {}); }, 5000);
+  } catch (e) { /* normal browser use: tokens are typed in Ayarlar */ }
 }
 
 function renderApprovalToken() {
@@ -1235,6 +1258,12 @@ function init() {
   });
 
   $("clearFilter").addEventListener("click", () => setConversation(null));
+  $("quitBtn").addEventListener("click", () => {
+    if (!window.confirm("WACC kapatılsın mı? Ajanlar ve servisler durur.")) return;
+    fetch("/_wacc/quit", { method: "POST", headers: { "X-WACC-Token": state.approvalToken } })
+      .then((r) => toast(r.ok ? "Kapatılıyor…" : "Kapatılamadı", !r.ok))
+      .catch(() => toast("Kapatılamadı", true));
+  });
 
   $("msgForm").addEventListener("submit", (ev) => {
     ev.preventDefault();
@@ -1291,6 +1320,7 @@ function init() {
   setTab("agents");
   refresh();
   refreshApprovals();
+  desktopHandoff();
   setInterval(() => {
     if (document.hidden) {
       // Hidden tab: only the cheap pending-approval check, and only when notifications are on.
