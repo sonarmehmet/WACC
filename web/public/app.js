@@ -179,7 +179,7 @@ async function request(prefix, token, path, options) {
   try {
     res = await fetch(prefix + path, init);
   } catch (e) {
-    throw new ApiError(0, "NETWORK", "Panel sunucusuna ulaşılamıyor");
+    throw new ApiError(0, "NETWORK", "Panel sunucusuna ulaşılamıyor: WACC kapanmış olabilir, Başlat menüsünden yeniden aç");
   }
   let data = null;
   try { data = await res.json(); } catch (e) { /* empty or non-JSON body */ }

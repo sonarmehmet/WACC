@@ -175,7 +175,8 @@ def selftest(out_path: str) -> int:
         result["checks"]["data_in_expected_dir"] = (data_dir() / "hub.db").exists() and (data_dir() / "tokens.json").exists()
         import serve
         quit_called = []
-        serve.arm_desktop("selftest-key-selftest-key", t, lambda: quit_called.append(1))
+        reopened = []
+        serve.arm_desktop("selftest-key-selftest-key", t, lambda: quit_called.append(1), lambda: reopened.append(1))
         panel = "http://%s:%d" % (HOST, PANEL_PORT)
         got = call(panel + "/_wacc/handoff?k=selftest-key-selftest-key")[1]
         result["checks"]["window_handoff_gives_tokens"] = got == {"hub": t["hub"], "backend": t["backend"], "user": t["user"]}
@@ -189,6 +190,9 @@ def selftest(out_path: str) -> int:
             call(panel + "/_wacc/quit", t["hub"], "POST", {})
         except urllib.error.HTTPError as e:
             result["checks"]["window_quit_needs_user_token"] = e.code == 403 and not quit_called
+        result["checks"]["window_reopen_asks_running_app"] = call(panel + "/_wacc/reopen", "", "POST", {})[0] == 200
+        time.sleep(0.3)
+        result["checks"]["window_reopen_asks_running_app"] = result["checks"]["window_reopen_asks_running_app"] and bool(reopened)
         result["checks"]["window_ping_ok"] = call(panel + "/_wacc/ping", "", "POST", {})[0] == 200
         result["ok"] = all(result["checks"].values())
     except Exception as exc:  # report, never hang
@@ -217,55 +221,88 @@ def find_browser():
     return None
 
 
-def open_window(services, data, quit_event):
-    """Open the control-room panel in its own window, already connected. Returns the browser process,
-    or None when no suitable browser exists (the caller then falls back to the Tk window)."""
-    browser = find_browser()
-    if not browser or os.environ.get("WACC_UI") == "tk":
-        return None
-    import serve
-    key = secrets.token_urlsafe(24)  # one-time: the page trades it for the tokens, then it is dead
-    serve.arm_desktop(key, services.tokens, quit_event.set)
-    profile = data.parent / "window-profile"
-    profile.mkdir(parents=True, exist_ok=True)
-    args = [browser, "--app=http://%s:%d/?k=%s" % (HOST, PANEL_PORT, key), "--user-data-dir=%s" % profile,
-            "--window-size=1360,860", "--no-first-run", "--no-default-browser-check", "--disable-features=Translate"]
-    try:
-        return subprocess.Popen(args)
-    except OSError as exc:
-        print("window start failed: %s" % exc, file=sys.stderr)
-        return None
+def log(message):
+    print("%s [wacc] %s" % (time.strftime("%Y-%m-%d %H:%M:%S"), message), flush=True)
 
 
-def wait_for_window(proc, quit_event):
-    """Block until the window is closed (or the app's own close button was used)."""
-    import serve
-    started = time.monotonic()
-    while not quit_event.is_set():
-        time.sleep(0.5)
-        if proc.poll() is not None:
-            if time.monotonic() - started > 15:
-                break  # the person closed the window
-            # the browser handed the window to another process and exited: follow the page's heartbeat instead
-            if time.time() - serve.last_ping() > 150:
+class Windows:
+    """The control-room window(s). Each window gets its own one-time key; the first one's process decides
+    nothing on its own: services stay up while ANY window process is alive or the page still pings."""
+
+    def __init__(self, services, data, quit_event):
+        self.services, self.data, self.quit_event = services, data, quit_event
+        self.procs = []
+        self.browser = find_browser()
+
+    def available(self):
+        return bool(self.browser) and os.environ.get("WACC_UI") != "tk"
+
+    def open(self):
+        import serve
+        key = secrets.token_urlsafe(24)  # one-time: the page trades it for the tokens, then it is dead
+        serve.arm_desktop(key, self.services.tokens, self.quit_event.set, self.open)
+        profile = self.data.parent / "window-profile"  # stable, so the microphone permission is remembered
+        profile.mkdir(parents=True, exist_ok=True)
+        args = [self.browser, "--app=http://%s:%d/?k=%s" % (HOST, PANEL_PORT, key), "--user-data-dir=%s" % profile,
+                "--window-size=1360,860", "--no-first-run", "--no-default-browser-check", "--disable-features=Translate"]
+        try:
+            self.procs.append(subprocess.Popen(args))
+            log("window opened (%s)" % Path(self.browser).name)
+            return True
+        except OSError as exc:
+            log("window start failed: %s" % exc)
+            return False
+
+    def alive(self):
+        return any(p.poll() is None for p in self.procs)
+
+    def wait(self):
+        """Block until every window is gone for good, or the app's own close button was used."""
+        import serve
+        started = time.monotonic()
+        while not self.quit_event.is_set():
+            time.sleep(1)
+            if self.alive():
+                continue
+            idle = time.time() - serve.last_ping()
+            # all window processes ended. A browser may hand its window to another process and exit, so
+            # the page's heartbeat has the last word: stay while it still pings.
+            limit = 90 if time.monotonic() - started > 15 else 180
+            if idle > limit:
+                log("window closed (no heartbeat for %ds): shutting down" % idle)
                 break
-    if proc.poll() is None:
-        proc.terminate()
+        else:
+            log("closed from the app's own button")
+        for p in self.procs:
+            if p.poll() is None:
+                p.terminate()
+
+
+def ask_running_instance_to_open() -> bool:
+    """WACC already runs (ports busy): ask it for a new window instead of failing."""
+    try:
+        status, _ = call("http://%s:%d/_wacc/reopen" % (HOST, PANEL_PORT), "", "POST", {})
+        return status == 200
+    except Exception:
+        return False
 
 
 def run_gui() -> int:
+    if not port_free(PANEL_PORT) and ask_running_instance_to_open():
+        return 0  # the already running WACC opened another window
     services = Services()
     try:
         services.start()
         quit_event = threading.Event()
-        proc = open_window(services, data_dir(), quit_event)
-        if proc is not None:
-            wait_for_window(proc, quit_event)
+        windows = Windows(services, data_dir(), quit_event)
+        if windows.available() and windows.open():
+            windows.wait()
             return 0
         from wacc_desktop.ui import App  # no Chromium browser found: the plain Tk window still works
         App(preset=services.tokens).mainloop()
         return 0
     except Exception as exc:
+        log("start failed: %r" % exc)
         message = f"WACC başlatılamadı:\n\n{exc}\n\nAyrıntı: {data_dir() / 'wacc.log'}"
         try:
             import tkinter
@@ -277,6 +314,7 @@ def run_gui() -> int:
             print(message, file=sys.stderr)
         return 1
     finally:
+        log("services stopping")
         services.stop()
 
 

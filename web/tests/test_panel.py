@@ -672,6 +672,19 @@ class DesktopHandoffTests(unittest.TestCase):
             time.sleep(0.05)
         self.assertEqual(self.quit_calls, [1])
 
+    def test_reopen_only_asks_the_running_app_for_a_window(self):
+        calls = []
+        self.serve.arm_desktop("k" * 24, {"hub": "H", "backend": "B", "user": "U"}, lambda: None, lambda: calls.append(1))
+        self.assertEqual(self.call("POST", "/_wacc/reopen", {})[0], 200)
+        deadline = time.time() + 3
+        while not calls and time.time() < deadline:
+            time.sleep(0.05)
+        self.assertEqual(calls, [1])
+        # a web page on another origin cannot trigger it, and nothing about tokens is returned
+        status, _, raw = self.call("POST", "/_wacc/reopen", {}, headers={"Origin": "http://evil.example"})
+        self.assertEqual(status, 403)
+        self.assertNotIn(b"U", self.call("POST", "/_wacc/reopen", {})[2])
+
     def test_ping_updates_heartbeat_and_key_is_not_logged(self):
         before = self.serve.last_ping()
         time.sleep(0.02)

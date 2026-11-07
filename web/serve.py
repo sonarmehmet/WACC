@@ -61,14 +61,18 @@ _OPENER = urlrequest.build_opener(urlrequest.ProxyHandler({}))
 # panel in its own window with a one-time key in the address; the page trades that key for the tokens once
 # (so no token ever sits on a command line or in a file the browser keeps), then pings so the launcher
 # knows the window is still open. /_wacc/quit needs the user's approval token.
-_DESKTOP = {"nonce": None, "tokens": None, "quit_token": "", "on_quit": None, "last_ping": time.time()}
+_DESKTOP = {"nonce": None, "tokens": None, "quit_token": "", "on_quit": None, "on_reopen": None,
+            "last_ping": time.time()}
 _DESKTOP_LOCK = threading.Lock()
 
 
-def arm_desktop(nonce: str, tokens: dict, on_quit) -> None:
+def arm_desktop(nonce: str, tokens: dict, on_quit, on_reopen=None) -> None:
+    """Called again for every new window: each window needs its own one-time key."""
     with _DESKTOP_LOCK:
         _DESKTOP.update(nonce=nonce, tokens=dict(tokens), quit_token=tokens.get("user", ""), on_quit=on_quit,
                         last_ping=time.time())
+        if on_reopen is not None:
+            _DESKTOP["on_reopen"] = on_reopen
 
 
 def last_ping() -> float:
@@ -147,6 +151,15 @@ def make_handler(hub_url: str, backend_url: str = DEFAULT_BACKEND):
                 return self._json(200, {"ok": True})
             if self.path == "/_wacc/quit":
                 return self._quit()
+            if self.path == "/_wacc/reopen":
+                # a second start of WACC asks the running one for a window instead of failing on busy ports;
+                # it can only make a window appear (the tokens stay behind the one-time key)
+                with _DESKTOP_LOCK:
+                    on_reopen = _DESKTOP["on_reopen"]
+                if not on_reopen:
+                    return self._json(404, {"detail": "Not available"})
+                threading.Thread(target=on_reopen, daemon=True).start()
+                return self._json(200, {"ok": True})
             self._json(405, {"detail": "Method not allowed"})
 
         def do_PUT(self):
