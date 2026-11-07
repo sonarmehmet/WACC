@@ -1171,7 +1171,7 @@ async function refresh() {
     try {
       health = await api("/health");
     } catch (e) {
-      setConn("bad", e.code === "HUB_UNREACHABLE" ? "Hub'a ulaşılamıyor" : e.message);
+      setConn("bad", e.code === "HUB_UNREACHABLE" ? "Hub'a ulaşılamıyor (Ayarlar > Tanı raporu)" : e.message);
       return;
     }
     state.data.emergency = Boolean(health.emergency_stop);
@@ -1331,6 +1331,20 @@ function init() {
   });
 
   $("clearFilter").addEventListener("click", () => setConversation(null));
+  // Ayarlar > Tanı raporu: what the app itself knows (Hub/Backend alive? restarts? log tail), to read or send to support.
+  $("diagBtn").addEventListener("click", async () => {
+    const out = $("diagOut");
+    out.classList.remove("hidden");
+    try {
+      const res = await fetch("/_wacc/diag");
+      const d = await res.json();
+      out.textContent = "Panel: açık\nHub: " + (d.hub_ok ? "çalışıyor" : "CEVAP VERMİYOR") + "\nBackend: " +
+        (d.backend_ok ? "çalışıyor" : "CEVAP VERMİYOR") + "\nYeniden başlatma: " + JSON.stringify(d.restarts || {}) +
+        "\n\n--- wacc.log (son satırlar) ---\n" + (d.log_tail || "(boş)");
+    } catch (e) {
+      out.textContent = "Panel sunucusuna ulaşılamıyor: WACC kapanmış. Başlat menüsünden WACC'ı yeniden aç.";
+    }
+  });
   $("quitBtn").addEventListener("click", () => {
     if (!window.confirm("WACC kapatılsın mı? Ajanlar ve servisler durur.")) return;
     fetch("/_wacc/quit", { method: "POST", headers: { "X-WACC-Token": state.approvalToken } })

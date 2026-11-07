@@ -64,6 +64,12 @@ _OPENER = urlrequest.build_opener(urlrequest.ProxyHandler({}))
 _DESKTOP = {"nonce": None, "tokens": None, "quit_token": "", "on_quit": None, "on_reopen": None,
             "last_ping": time.time()}
 _DESKTOP_LOCK = threading.Lock()
+_DIAG = {"fn": None}
+
+
+def set_diag(fn) -> None:
+    """fn() -> dict with the services' health and the tail of the log, shown by the Ayarlar "Tanı raporu" button."""
+    _DIAG["fn"] = fn
 
 
 def arm_desktop(nonce: str, tokens: dict, on_quit, on_reopen=None) -> None:
@@ -137,6 +143,9 @@ def make_handler(hub_url: str, backend_url: str = DEFAULT_BACKEND):
                 return self._backend("GET")
             if urlsplit(self.path).path == "/_wacc/handoff":
                 return self._handoff()
+            if urlsplit(self.path).path == "/_wacc/diag":
+                fn = _DIAG["fn"]
+                return self._json(200, fn() if fn else {"note": "no diagnostics in this mode"})
             self._static()
 
         def do_POST(self):

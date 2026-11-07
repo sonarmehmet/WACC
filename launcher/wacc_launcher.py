@@ -75,16 +75,63 @@ def wait_http(url: str, timeout: float = 40.0) -> bool:
 class Services:
     def __init__(self):
         self.servers = []
+        self.services = {}  # port -> {"name", "app", "server", "thread", "restarts"}
+        self.stopping = False
         self.panel = None
         self.worker = None
         self.tokens = {}
 
-    def _serve(self, app, port):
+    def _serve(self, app, port, name=""):
         import uvicorn
         server = uvicorn.Server(uvicorn.Config(app, host=HOST, port=port, log_config=None, log_level="warning",
                                                access_log=False))
-        threading.Thread(target=server.run, daemon=True, name=f"uvicorn-{port}").start()
-        self.servers.append(server)
+        thread = threading.Thread(target=server.run, daemon=True, name=f"uvicorn-{port}")
+        thread.start()
+        entry = self.services.setdefault(port, {"name": name or str(port), "restarts": 0})
+        entry.update(app=app, server=server, thread=thread)
+        self.servers = [e["server"] for e in self.services.values()]
+
+    def healthy(self, port):
+        try:
+            with urllib.request.urlopen("http://%s:%d/health" % (HOST, port), timeout=3) as r:
+                return r.status == 200
+        except Exception:
+            return False
+
+    def watchdog(self):
+        """If the Hub or the Backend stops answering (crashed thread, anything), start it again and say so in the log."""
+        bad = {}
+        while not self.stopping:
+            time.sleep(5)
+            for port, entry in list(self.services.items()):
+                if self.stopping:
+                    return
+                if self.healthy(port) or self.healthy(port):
+                    bad[port] = 0
+                    continue
+                bad[port] = bad.get(port, 0) + 1
+                if bad[port] < 2:
+                    continue  # one missed check is not enough
+                log("%s stopped answering: restarting (restart #%d)" % (entry["name"], entry["restarts"] + 1))
+                try:
+                    entry["server"].should_exit = True
+                    entry["thread"].join(8)
+                    entry["restarts"] += 1
+                    self._serve(entry["app"], port)
+                    log("%s restarted, healthy=%s" % (entry["name"], wait_http("http://%s:%d/health" % (HOST, port), 15)))
+                except Exception as exc:
+                    log("%s restart failed: %r" % (entry["name"], exc))
+                bad[port] = 0
+
+    def diag(self):
+        tail = ""
+        try:
+            lines = (data_dir() / "wacc.log").read_text(encoding="utf-8", errors="replace").splitlines()
+            tail = "\n".join(lines[-40:])
+        except OSError:
+            pass
+        return {"version": "WACC", "frozen": FROZEN, "hub_ok": self.healthy(HUB_PORT), "backend_ok": self.healthy(BACKEND_PORT),
+                "restarts": {e["name"]: e["restarts"] for e in self.services.values()}, "log_tail": tail}
 
     def start(self):
         busy = [p for p in (HUB_PORT, BACKEND_PORT, PANEL_PORT) if not port_free(p)]
@@ -110,19 +157,22 @@ class Services:
                                   settings.data_dir)
         self.worker = Worker(backend.state.engine)
         self.worker.start()
-        self._serve(hub, HUB_PORT)
-        self._serve(backend, BACKEND_PORT)
+        self._serve(hub, HUB_PORT, "Hub")
+        self._serve(backend, BACKEND_PORT, "Backend")
         # Web panel (stdlib server)
         import serve
         serve.PUBLIC = (BASE / "web" / "public").resolve() if FROZEN else serve.PUBLIC
         self.panel = serve.create_server(PANEL_PORT, "http://%s:%d" % (HOST, HUB_PORT), "http://%s:%d" % (HOST, BACKEND_PORT))
         threading.Thread(target=self.panel.serve_forever, daemon=True, name="panel").start()
+        serve.set_diag(self.diag)
         self.tokens = {"hub": hub_tokens["user"], "backend": get_or_create_token(settings), "user": user_token}
         for name, url in (("Hub", "http://%s:%d/health" % (HOST, HUB_PORT)), ("Backend", "http://%s:%d/health" % (HOST, BACKEND_PORT))):
             if not wait_http(url):
                 raise RuntimeError(f"{name} açılmadı (bkz. wacc.log)")
+        threading.Thread(target=self.watchdog, daemon=True, name="watchdog").start()
 
     def stop(self):
+        self.stopping = True
         for s in self.servers:
             s.should_exit = True
         if self.panel:
@@ -193,7 +243,15 @@ def selftest(out_path: str) -> int:
         result["checks"]["window_reopen_asks_running_app"] = call(panel + "/_wacc/reopen", "", "POST", {})[0] == 200
         time.sleep(0.3)
         result["checks"]["window_reopen_asks_running_app"] = result["checks"]["window_reopen_asks_running_app"] and bool(reopened)
+        diag = call(panel + "/_wacc/diag")[1]
+        result["checks"]["diag_reports_services"] = diag.get("hub_ok") is True and diag.get("backend_ok") is True
         result["checks"]["window_ping_ok"] = call(panel + "/_wacc/ping", "", "POST", {})[0] == 200
+        # the watchdog must bring a stopped Hub back by itself
+        services.services[HUB_PORT]["server"].should_exit = True
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline and not (services.services[HUB_PORT]["restarts"] >= 1 and services.healthy(HUB_PORT)):
+            time.sleep(1)
+        result["checks"]["watchdog_restarts_a_stopped_hub"] = services.services[HUB_PORT]["restarts"] >= 1 and services.healthy(HUB_PORT)
         result["ok"] = all(result["checks"].values())
     except Exception as exc:  # report, never hang
         result["error"] = f"{type(exc).__name__}: {exc}"
