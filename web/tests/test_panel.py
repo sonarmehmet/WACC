@@ -852,6 +852,11 @@ class FrontendSourceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout), [])
 
+    def test_chat_request_has_a_timeout(self):
+        source = (WEB / "public" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("AbortController", source)
+        self.assertIn("timeout: 75000", source)
+
     @unittest.skipUnless(shutil.which("node"), "node not installed")
     def test_pasted_api_key_is_cleaned(self):
         result = subprocess.run(["node", str(WEB / "tests" / "clean_key_cases.js")], capture_output=True, text=True)

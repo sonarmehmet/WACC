@@ -25,6 +25,7 @@ from .storage import Storage, StorageError
 MAX_PROMPT_CHARS = 100_000
 MAX_OUTPUT_TOKENS = 8192
 LOCAL, CLOUD = "local", "cloud"
+COMPLETE_DEADLINE = 50  # seconds: stop trying further accounts after this (each call itself is capped at 40 s)
 
 
 class ProviderError(Exception):
@@ -135,7 +136,7 @@ class OpenAICompatProvider(Provider):
     """Chat-completions endpoint (Ollama, LM Studio, llama.cpp server, or a hosted API)."""
 
     def __init__(self, name, kind, base_url, model, api_key=None, price_in_per_1k=0.0,
-                 price_out_per_1k=0.0, timeout=120):
+                 price_out_per_1k=0.0, timeout=40):
         super().__init__(name=name, kind=kind, model=model, price_in_per_1k=price_in_per_1k,
                          price_out_per_1k=price_out_per_1k)
         self.base_url = validate_base_url(base_url, kind)
@@ -463,7 +464,11 @@ class Orchestrator:
         if not candidates:
             raise OrchestratorError("NO_PROVIDER", "No AI provider is configured")
         budget_blocked, errors = False, []
+        started = time.monotonic()
         for p in candidates:
+            if errors and time.monotonic() - started > COMPLETE_DEADLINE:
+                errors.append("zaman aşımı: kalan hesaplar denenmedi")
+                break
             if p.kind == CLOUD:
                 projected = p.cost(estimate_tokens((system or "") + prompt), int(max_tokens))
                 if self.spent_today() + projected > self.get_budget():
