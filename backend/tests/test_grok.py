@@ -130,6 +130,22 @@ class GrokTests(unittest.TestCase):
         with self.assertRaises(OrchestratorError):
             _clean({"name": "grok1", "kind": "cloud", "base_url": "https://api.x.ai/v1", "model": "grok-4.7", "api_key": "xai abc"})
 
+    def test_chat_stops_trying_accounts_after_the_deadline(self):
+        import wacc_backend.orchestrator as orch_mod
+        self.orch.add_account(MockProvider(name="first", fail=True))
+        slow = MockProvider(name="second")
+        self.orch.add_account(slow)
+        old, orch_mod.COMPLETE_DEADLINE = orch_mod.COMPLETE_DEADLINE, -1
+        try:
+            with self.assertRaises(OrchestratorError) as cm:
+                self.orch.complete("hi")
+        finally:
+            orch_mod.COMPLETE_DEADLINE = old
+        self.assertEqual(cm.exception.code, "ALL_FAILED")
+        self.assertIn("zaman aşımı", str(cm.exception))
+        self.assertEqual(slow.calls, 0)
+        self.assertEqual(OpenAICompatProvider("x", LOCAL, self.url, "m").timeout, 40)
+
     def test_clean_key_rules(self):
         self.assertEqual(clean_key("“xai-x”​"), "xai-x")
         for bad in ("a b", "xaiş", "x" * 501):

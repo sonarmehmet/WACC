@@ -176,11 +176,22 @@ async function request(prefix, token, path, options) {
     init.body = JSON.stringify(options.body);
   }
   let res;
+  let timer = null;
+  if (options.timeout) {
+    const ctl = new AbortController();
+    init.signal = ctl.signal;
+    timer = setTimeout(() => ctl.abort(), options.timeout);
+  }
   try {
     res = await fetch(prefix + path, init);
   } catch (e) {
+    if (e && e.name === "AbortError") {
+      throw new ApiError(0, "TIMEOUT", "Cevap " + Math.round(options.timeout / 1000) +
+        " saniyede gelmedi (yapay zekâ hesabı yavaş ya da kapalı). Ajanlar > Hesapları test et.");
+    }
     throw new ApiError(0, "NETWORK", "Panel sunucusuna ulaşılamıyor: WACC kapanmış olabilir, Başlat menüsünden yeniden aç");
   }
+  if (timer) clearTimeout(timer);
   let data = null;
   try { data = await res.json(); } catch (e) { /* empty or non-JSON body */ }
   if (!res.ok) {
@@ -712,7 +723,7 @@ async function askAI(text) {
   const history = chatHistory.slice(-6).map((m) => (m.role === "user" ? "Kullanıcı: " : "Asistan: ") + m.text).join("\n");
   const prompt = context + "\n" + (history ? history + "\n" : "") + "Kullanıcı: " + text.slice(0, 2000) + "\nAsistan:";
   const out = await approvalCall(token, "/ai/complete", {
-    method: "POST", body: { prompt, system: CHAT_SYSTEM, max_tokens: 400 },
+    method: "POST", body: { prompt, system: CHAT_SYSTEM, max_tokens: 400 }, timeout: 75000,
   });
   const reply = String((out && out.text) || "").trim();
   chatHistory.push({ role: "user", text: text.slice(0, 500) }, { role: "ai", text: reply.slice(0, 800) });
