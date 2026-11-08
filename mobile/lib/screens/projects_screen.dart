@@ -23,7 +23,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   @override
   void initState() {
     super.initState();
-    widget.state.projects.refresh();
+    // not synchronously: refresh() may notify listeners and this runs while the tree is being built
+    Future<void>.microtask(widget.state.projects.refresh);
   }
 
   @override

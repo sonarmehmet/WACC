@@ -65,9 +65,11 @@ class FakeProjectsBackend extends BackendClient {
 void main() {
   test('Workspace parses and tolerates odd values', () {
     final w = Workspace.fromJson({'name': 'site', 'title': 'Site', 'folder': r'C:\p\site', 'agents': ['claude1'], 'exists': true});
-    expect((w.name, w.title, w.folder, w.agents, w.exists), ('site', 'Site', r'C:\p\site', ['claude1'], true));
+    expect([w.name, w.title, w.folder, w.exists], ['site', 'Site', r'C:\p\site', true]);
+    expect(w.agents, ['claude1']);
     final odd = Workspace.fromJson({'name': 'x', 'agents': 'nope'});
-    expect((odd.title, odd.agents, odd.exists), ('x', <String>[], false));
+    expect([odd.title, odd.exists], ['x', false]);
+    expect(odd.agents, isEmpty);
   });
 
   test('BackendClient project calls use the project routes with the token in a header', () async {
