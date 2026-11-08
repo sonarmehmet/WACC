@@ -142,14 +142,23 @@ class AgentsScreen extends StatelessWidget {
       label = 'BEKLEMEDE';
     }
     final online = state.agents.where((a) => a.online).length;
-    return Column(
-      children: [
-        RadarOrb(color: color),
-        Text(label, style: TextStyle(color: color, letterSpacing: 3, fontWeight: FontWeight.w600)),
-        const SizedBox(height: 4),
-        Text('$online/${state.agents.length} ajan çevrimiçi', style: Theme.of(context).textTheme.bodySmall),
-        const SizedBox(height: 8),
-      ],
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          RadarOrb(color: color, size: 72),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: TextStyle(color: color, letterSpacing: 2, fontWeight: FontWeight.w600)),
+                Text('$online/${state.agents.length} ajan çevrimiçi', style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
