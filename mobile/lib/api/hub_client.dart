@@ -297,6 +297,30 @@ class BackendClient extends _JsonClient {
     await _send('POST', '/exec/resume');
   }
 
+  // --------------------------------------------------------------- projects
+  Future<List<Workspace>> workspaces() async =>
+      _list(await _send('GET', '/workspaces')).map(Workspace.fromJson).toList();
+
+  /// User token only. [folder] empty = WACC opens a folder of its own.
+  Future<void> addWorkspace(String title, String folder) async {
+    await _send('POST', '/workspaces', body: {'title': title, if (folder.isNotEmpty) 'folder': folder});
+  }
+
+  /// User token only. The folder and its files stay.
+  Future<void> removeWorkspace(String name) async {
+    await _send('DELETE', '/workspaces/${Uri.encodeComponent(name)}');
+  }
+
+  /// User token only.
+  Future<void> assignWorkspaceAgent(String name, String agent) async {
+    await _send('POST', '/workspaces/${Uri.encodeComponent(name)}/agents', body: {'agent': agent});
+  }
+
+  /// User token only.
+  Future<void> unassignWorkspaceAgent(String name, String agent) async {
+    await _send('DELETE', '/workspaces/${Uri.encodeComponent(name)}/agents/${Uri.encodeComponent(agent)}');
+  }
+
   // ------------------------------------------------------------ AI accounts
   Future<List<AiProvider>> aiProviders() async =>
       _list(await _send('GET', '/ai/providers')).map(AiProvider.fromJson).toList();

@@ -5,6 +5,7 @@ import 'jarvis.dart';
 import 'screens/agents_screen.dart';
 import 'screens/approvals_screen.dart';
 import 'screens/chat_screen.dart';
+import 'screens/projects_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/tasks_screen.dart';
 
@@ -63,7 +64,7 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
-  static const int _approvalsIndex = 3;
+  static const int _approvalsIndex = 4;
   int _index = 0;
 
   @override
@@ -81,10 +82,11 @@ class _HomeShellState extends State<HomeShell> {
   Widget build(BuildContext context) {
     final state = widget.state;
     return ListenableBuilder(
-      listenable: Listenable.merge([state, state.approvals]),
+      listenable: Listenable.merge([state, state.approvals, state.projects]),
       builder: (context, _) {
         final screens = <Widget>[
           AgentsScreen(state: state),
+          ProjectsScreen(state: state),
           ChatScreen(state: state),
           TasksScreen(state: state),
           ApprovalsScreen(state: state.approvals),
@@ -120,6 +122,7 @@ class _HomeShellState extends State<HomeShell> {
             onDestinationSelected: _select,
             destinations: [
               const NavigationDestination(icon: Icon(Icons.smart_toy_outlined), label: 'Ajanlar'),
+              const NavigationDestination(icon: Icon(Icons.folder_outlined), label: 'Projeler'),
               const NavigationDestination(icon: Icon(Icons.forum_outlined), label: 'Sohbet'),
               const NavigationDestination(icon: Icon(Icons.checklist), label: 'Görevler'),
               NavigationDestination(

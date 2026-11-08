@@ -220,6 +220,7 @@ class AgentsScreen extends StatelessWidget {
           for (final agent in agents)
             AgentCard(
               agent: agent,
+              projects: state.projects.projectsOf(agent.id),
               onToggle: state.isUser && agent.id != 'user' ? () => _toggle(context, agent) : null,
               onRemove: state.isUser && agent.removable ? () => _remove(context, agent) : null,
             ),
@@ -230,9 +231,10 @@ class AgentsScreen extends StatelessWidget {
 }
 
 class AgentCard extends StatelessWidget {
-  const AgentCard({super.key, required this.agent, this.onToggle, this.onRemove});
+  const AgentCard({super.key, required this.agent, this.projects = const [], this.onToggle, this.onRemove});
 
   final Agent agent;
+  final List<String> projects;
   final VoidCallback? onToggle;
   final VoidCallback? onRemove;
 
@@ -287,6 +289,10 @@ class AgentCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
+            Text(
+              'Proje: ${projects.isEmpty ? 'yok (varsayılan klasör)' : projects.join(', ')}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
             Text(
               'Son görülme: ${ago(agent.lastSeen)}',
               style: Theme.of(context).textTheme.bodySmall,

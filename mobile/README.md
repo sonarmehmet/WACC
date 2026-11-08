@@ -8,6 +8,10 @@ WACC Hub istemcisi: ajan durumu, ortak sohbet akışı, görevler ve ayarlar. Hu
 
 Bu kod, Flutter SDK'sı olmayan bir ortamda yazıldı (SDK'nın motor dosyalarına erişim yoktu). Yalnızca **Dart sözdizimi** denetlendi (13 dosya, hata yok). `flutter analyze`, `flutter test` ve gerçek derleme **henüz çalıştırılmadı**; ilk çalıştırmada küçük tip/lint hataları çıkabilir. Gerçek cihaz testi yapılmadı. Aşağıdaki adımları kendi bilgisayarında çalıştırıp çıktıyı claude3'e ilet.
 
+## Ekranlar
+
+Ajanlar, **Projeler**, Sohbet, Görevler, Onaylar, Ayarlar (+ Yapay zeka hesapları). **Projeler**: proje oluştur (klasör boşsa WACC bilgisayarda açar, ya da tam yol yaz), projeye ajan ekle/çıkar, projeyi kaldır (klasör ve dosyalar silinmez). Değişiklik için Onaylar sekmesinde kullanıcı tokenı gerekir. Ajan kartlarında ajanın projeleri yazar. Klasörü açmak yalnızca bilgisayardaki WACC penceresinde mümkün; telefonda yol gösterilir.
+
 ## Kurulum
 
 Flutter 3.19+ (Dart 3.3+) gerekir. `android/` klasörü **depoda tutulmaz**, üretilir (şablon Flutter sürümüyle değişir; CI de aynısını yapar). Tek komut:
