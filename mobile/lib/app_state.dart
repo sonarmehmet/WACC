@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'api/hub_client.dart';
 import 'ai_state.dart';
 import 'approvals_state.dart';
+import 'projects_state.dart';
 import 'models.dart';
 import 'settings.dart';
 
@@ -21,10 +22,14 @@ class AppState extends ChangeNotifier {
   })  : _factory = clientFactory ?? ((url, token) => HubClient(baseUrl: url, token: token)),
         approvals = ApprovalsState(factory: backendFactory, idleTimeout: approvalIdleTimeout) {
     ai = AiState(approvals);
+    projects = ProjectsState(approvals);
   }
 
   /// AI accounts (Backend). Reads with the Backend token; changes need the user token.
   late final AiState ai;
+
+  /// Projects: a local folder per project and the agents that work in it (Backend /workspaces).
+  late final ProjectsState projects;
 
   /// Approval requests and decisions (Backend). Owned here so settings changes reach it.
   final ApprovalsState approvals;
@@ -219,6 +224,7 @@ class AppState extends ChangeNotifier {
     _timer?.cancel();
     _client?.close();
     ai.dispose();
+    projects.dispose();
     approvals.dispose();
     super.dispose();
   }

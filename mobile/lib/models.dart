@@ -424,3 +424,28 @@ class AiTestResult {
   final String category; // why it failed: API anahtarı / Kredi-lisans / Model adı / ...
   final String hint; // what to do about it
 }
+
+/// A project: one local folder on the computer plus the agents allowed to work in it (Backend /workspaces).
+class Workspace {
+  const Workspace({
+    required this.name,
+    required this.title,
+    required this.folder,
+    required this.agents,
+    required this.exists,
+  });
+
+  factory Workspace.fromJson(Map<String, dynamic> j) => Workspace(
+        name: j['name']?.toString() ?? '?',
+        title: j['title']?.toString() ?? j['name']?.toString() ?? '?',
+        folder: j['folder']?.toString() ?? '',
+        agents: _strList(j['agents']),
+        exists: _bool(j['exists']),
+      );
+
+  final String name;
+  final String title;
+  final String folder;
+  final List<String> agents;
+  final bool exists;
+}
