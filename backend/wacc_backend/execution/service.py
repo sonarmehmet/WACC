@@ -47,8 +47,9 @@ class EmergencyStop:
 class ExecutionService:
     def __init__(self, storage: Storage, roots: Iterable[Path], executor: Executor, stop: EmergencyStop,
                  approvals: Optional[Approvals] = None, network_allowlist=DEFAULT_NETWORK_ALLOWLIST,
-                 auto_run_code: bool = False):
+                 auto_run_code: bool = False, scope=None):
         self.storage = storage
+        self.scope = scope  # agent name -> the project folders that agent is confined to (None = default roots)
         self.roots = [Path(r) for r in roots]
         self.executor = executor
         self.stop = stop
@@ -65,7 +66,8 @@ class ExecutionService:
                                  "DENIED", "emergency stop active")
             raise StorageError("EMERGENCY_STOP", "Emergency stop is active; only the user can lift it")
 
-        decision = classify(action, self.roots, self.network_allowlist, requested_by=agent, auto_run_code=self.auto_run_code)
+        roots = (self.scope(agent) if self.scope else None) or self.roots
+        decision = classify(action, roots, self.network_allowlist, requested_by=agent, auto_run_code=self.auto_run_code)
         base = {"class": decision.action_class, "summary": decision.summary}
 
         if decision.verdict == DENY:

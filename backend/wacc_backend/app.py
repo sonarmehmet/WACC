@@ -15,14 +15,15 @@ from .execution.executor import Executor, RealExecutor
 from .execution.service import EmergencyStop, ExecutionService
 from .accounts import AccountStore, public_view, to_provider
 from .orchestrator import Orchestrator, OrchestratorError, Provider, build_providers
-from .config import Settings, load_settings
+from .config import ROOT as CODE_ROOT, Settings, load_settings
+from .workspaces import WorkspaceStore
 from .security import AgentTokenBook, get_or_create_token, get_or_create_user_token, token_matches
 from .storage import Storage, StorageError
 
 STATUS_MAP = {"NOT_FOUND": 404, "DUPLICATE": 409, "FORBIDDEN": 403, "BAD_STATE": 409,
               "PROJECT_ARCHIVED": 409, "DISABLED": 409, "BUDGET_EXCEEDED": 429, "EMERGENCY_STOP": 423,
               "NOT_APPROVED": 403, "HASH_MISMATCH": 403,
-              "NO_PROVIDER": 503, "ALL_FAILED": 502, "PROVIDER_ERROR": 502, "BAD_ADDRESS": 400, "NOT_REMOVABLE": 409, "TOO_MANY": 409, "TOO_MANY_PENDING": 429}
+              "NO_PROVIDER": 503, "ALL_FAILED": 502, "PROVIDER_ERROR": 502, "BAD_ADDRESS": 400, "NOT_REMOVABLE": 409, "TOO_MANY": 409, "BAD_FOLDER": 400, "BAD_NAME": 400, "BAD_AGENT": 400, "TOO_MANY_PENDING": 429}
 
 
 class ProjectIn(BaseModel):
@@ -34,6 +35,16 @@ class ProjectPatch(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     status: Optional[str] = None
+
+
+class WorkspaceIn(BaseModel):
+    title: str
+    folder: Optional[str] = None
+    agents: List[str] = []
+
+
+class WorkspaceAgentIn(BaseModel):
+    agent: str
 
 
 class JobIn(BaseModel):
@@ -173,11 +184,15 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
     token_book = AgentTokenBook(settings, fixed=agent_tokens)
     approvals = Approvals(storage)
     stop = EmergencyStop(settings.data_dir, engine, approvals)
-    execution = ExecutionService(storage, settings.exec_roots, executor or RealExecutor(settings.exec_roots), stop, approvals,
-                                auto_run_code=settings.exec_auto_code)
+    workspaces = WorkspaceStore(settings.data_dir / "workspaces.json", settings.data_dir.parent / "workspace",
+                                forbidden=[CODE_ROOT, settings.data_dir])
+    execution = ExecutionService(storage, settings.exec_roots,
+                                executor or RealExecutor(settings.exec_roots, extra_roots=workspaces.folders), stop, approvals,
+                                auto_run_code=settings.exec_auto_code, scope=workspaces.folders_for)
     app = FastAPI(title="WACC Backend", version=__version__)
     app.add_middleware(BodyLimit, limit=MAX_REQUEST_BYTES)
     app.state.engine, app.state.orchestrator, app.state.execution = engine, orchestrator, execution
+    app.state.workspaces = workspaces
 
     def caller(x_wacc_token: str = Header(default="")) -> str:
         """Who is calling: 'user' (the human), an agent name (own token), or 'shared' (legacy read token)."""
@@ -421,6 +436,27 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
     @app.post("/exec/approvals/{approval_id}/deny", dependencies=[Depends(user_only)])
     def exec_deny(approval_id: int):
         return run(approvals.decide, approval_id, False, "user")
+
+    # ---- project workspaces: a local folder per project and the agents allowed to work in it
+    @app.get("/workspaces", dependencies=[Depends(auth)])
+    def workspaces_list():
+        return workspaces.list()
+
+    @app.post("/workspaces", status_code=201, dependencies=[Depends(user_only)])
+    def workspaces_add(body: WorkspaceIn):
+        return run(workspaces.add, body.title, body.folder, body.agents)
+
+    @app.delete("/workspaces/{name}", dependencies=[Depends(user_only)])
+    def workspaces_remove(name: str):
+        return {"removed": workspaces.remove(name)}  # the folder and its files stay
+
+    @app.post("/workspaces/{name}/agents", dependencies=[Depends(user_only)])
+    def workspaces_assign(name: str, body: WorkspaceAgentIn):
+        return run(workspaces.assign, name, body.agent)
+
+    @app.delete("/workspaces/{name}/agents/{agent}", dependencies=[Depends(user_only)])
+    def workspaces_unassign(name: str, agent: str):
+        return run(workspaces.unassign, name, agent)
 
     @app.get("/exec/audit", dependencies=[Depends(auth)])
     def exec_audit(limit: int = 200):

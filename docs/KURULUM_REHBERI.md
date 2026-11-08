@@ -192,6 +192,13 @@ Paket kurma, dosya silme, test/derleme çalıştırma gibi işler otomatik çal�
 
 Anahtar yalnızca bu bilgisayarda saklanır, bir daha gösterilmez. Elle ayrıntılı ayar istersen **Yapay Zeka** sekmesi (masaüstü, web ya da telefon) → **Hesap ekle**: ad, tür (yerel/bulut), OpenAI uyumlu adres, model, API anahtarı (yerel için boş) → **Ekle** → **Test et**.
 
+**Projeler (her proje için bir klasör):** pencerede **Projeler** sekmesi var.
+1. **Proje adı** yaz (örn. *Rüzgar türbini sitesi*), **Proje oluştur**'a bas. Klasörü WACC otomatik açar (`%LOCALAPPDATA%\WACC\workspace\proje-adi`). Bilgisayarında **kendi klasörünü** kullanmak istersen **Klasör** kutusuna tam yolu yaz (örn. `C:\Users\sen\Belgeler\proje`); klasör yoksa açılır.
+2. Proje kartında listeden bir ajan seçip **Ajanı projeye ekle**'ye bas. Ajanı çıkarmak için adının yanındaki ✕'e bas. Ajan eklemek/silmek için **Ajanlar** sekmesi aynen duruyor.
+3. **Klasörü aç** projenin klasörünü Dosya Gezgini'nde açar. **Projeyi kaldır** projeyi listeden çıkarır, **klasör ve dosyaların silinmez**.
+4. Bir projeye eklenen ajan **yalnızca o projenin klasöründe** dosya okuyup yazar ve komut çalıştırır. Hiçbir projede olmayan ajan eski varsayılan klasörde çalışır. Bir ajan birden fazla projedeyse hepsine erişir; göreli yollar ilk projeye göre çözülür, diğerleri için tam yol kullanılır.
+5. Kurallar aynı kalır: silme, paket kurma ve `git push` her seferinde **Onaylar** sekmesinde senden onay ister; token ve `data` gibi gizli dosyalara hiçbir ajan erişemez. Güvenlik için şu klasörler proje olamaz: sürücü kökü, Windows/Program Files, kullanıcı klasörünün tamamı, `.ssh`/`AppData`, WACC'ın kendi program ve veri klasörü. Bunların dışında bilgisayarındaki istediğin klasörü proje yapabilirsin.
+
 **Ücretsiz seçenekler (kredi kartı gerekmez):** sağlayıcı listesinde **Groq**, **Google Gemini** ve **OpenRouter ücretsiz modeller** var. Anahtarı Groq için console.groq.com/keys, Gemini için aistudio.google.com/apikey, OpenRouter için openrouter.ai/keys adresinden alırsın; listeden seçince adres kutunun altında yazar. Günlük istek sınırları vardır. Gemini'nin ücretsiz katmanında Google içeriği ürün geliştirmede kullanabilir, gizli bilgi gönderme.
 
 **Grok (xAI) için dikkat:** adres `https://api.x.ai/v1`, model `grok-4.7` (anahtarın görebildiği modellere göre otomatik seçilir). WACC Grok'a xAI'nin Responses API'siyle bağlanır. Anahtar console.x.ai → **API Keys** bölümünden alınan **normal** anahtardır; **Management Keys** bölümündeki anahtar sohbet için çalışmaz. Yapıştırdığın anahtarın başındaki/sonundaki boşluk, satır sonu ve tırnak otomatik temizlenir.

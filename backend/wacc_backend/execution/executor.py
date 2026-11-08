@@ -56,8 +56,9 @@ class Executor:
 
 
 class RealExecutor(Executor):
-    def __init__(self, roots: List[Path], timeout: int = DEFAULT_TIMEOUT):
+    def __init__(self, roots: List[Path], timeout: int = DEFAULT_TIMEOUT, extra_roots=None):
         self.roots = [Path(r).resolve() for r in roots]
+        self.extra_roots = extra_roots  # callable: project folders added at runtime
         self.timeout = min(int(timeout), MAX_TIMEOUT)
 
     def run(self, action, should_stop):
@@ -86,7 +87,8 @@ class RealExecutor(Executor):
         target = Path(action["path"])
         if not target.exists():
             raise FileNotFoundError("Nothing to delete")
-        root = next(r for r in self.roots if target == r or r in target.parents)
+        every = self.roots + [Path(r).resolve() for r in (self.extra_roots() if self.extra_roots else [])]
+        root = next(r for r in every if target == r or r in target.parents)
         if target == root:
             raise PermissionError("The project root cannot be deleted")
         trash = root / "_to_delete"

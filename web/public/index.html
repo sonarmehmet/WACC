@@ -66,6 +66,7 @@
     <section class="panel" id="right-panel">
       <nav class="tabs" aria-label="Bölümler">
         <button type="button" data-tab="agents" class="active">Ajanlar</button>
+        <button type="button" data-tab="projects">Projeler</button>
         <button type="button" data-tab="feed">Akış</button>
         <button type="button" data-tab="tasks">Görevler</button>
         <button type="button" data-tab="locks">Kilitler</button>
@@ -111,6 +112,20 @@
           </details>
         </section>
 
+        <section id="tab-projects" class="tab hidden">
+          <form id="projectForm" class="card form" autocomplete="off">
+            <h2>Yeni proje</h2>
+            <p class="hint">Her projenin bilgisayarında kendi klasörü olur. Projeye eklediğin ajanlar yalnızca o klasörde
+              çalışır; silme, paket kurma ve <b>git push</b> her zaman senin onayını ister.</p>
+            <label>Proje adı <input id="pjTitle" maxlength="60" autocapitalize="off" placeholder="örn. Rüzgar türbini sitesi"></label>
+            <label>Klasör (boş bırakırsan WACC otomatik açar)
+              <input id="pjFolder" autocapitalize="off" spellcheck="false" placeholder="örn. C:\Users\sen\Belgeler\proje">
+            </label>
+            <div class="actions"><button id="pjAddBtn" type="submit">Proje oluştur</button></div>
+            <p id="pjStatus" class="hint"></p>
+          </form>
+          <div id="projects" class="grid"></div>
+        </section>
         <section id="tab-feed" class="tab hidden">
           <form id="msgForm" class="card form">
             <h2>Mesaj gönder</h2>
