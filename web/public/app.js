@@ -278,6 +278,35 @@ async function agentAdd(ev) {
   }
 }
 
+// A pasted key often carries a trailing newline, quotes or "Bearer ": drop those. Anything else odd is refused here
+// instead of reaching the provider as a baffling HTTP 400.
+function cleanKey(raw) {
+  let k = String(raw || "").replace(/[\u200b-\u200d\u2060\ufeff\u00a0]/g, "").trim();
+  for (let i = 0; i < 3; i++) {
+    k = k.replace(/^["'`\u201c\u2018]+|["'`\u201d\u2019]+$/g, "").trim().replace(/^bearer\s+/i, "");
+  }
+  if (/\s/.test(k) || /[^\x21-\x7e]/.test(k)) return null;
+  return k;
+}
+
+// One line per AI account on the agent card: provider · model · connection state or the reason it failed.
+function aiStatusLine(a) {
+  if (!a.provider) return null;
+  const info = ((state.data.ai && state.data.ai.providers) || []).find((p) => p.name === a.provider);
+  const t = state.aiTests[a.provider];
+  const head = "Yapay zekâ: " + a.provider + " · " + ((t && t.model) || (info && info.model) || "model bilinmiyor");
+  let chipEl;
+  if (!info && state.data.ai) chipEl = chip("hesap yok", "bad");
+  else if (t && t.pending) chipEl = chip("test ediliyor…", "warn");
+  else if (t && t.ok) chipEl = chip("✔ Bağlı · " + t.latency + " ms");
+  else if (t) chipEl = chip("✖ " + (t.label || "Hata") + ": " + clip(t.error, 90), "bad");
+  else chipEl = chip(info && info.cooling_down ? "bekletiliyor (önceki hata)" : "test edilmedi", info && info.cooling_down ? "warn" : "");
+  return el("div", { class: "aistatus" },
+    el("div", { class: "meta", text: head + (info && info.base_url ? " · " + info.base_url.replace("https://", "") : "") }),
+    chipEl,
+    t && !t.ok && !t.pending && t.hint ? el("div", { class: "meta hint", text: "→ " + t.hint }) : null);
+}
+
 function agentCard(a) {
   const off = a.enabled === 0 || a.enabled === false;
   return el("article", { class: "card agent" + (off ? " off" : "") },
@@ -293,6 +322,7 @@ function agentCard(a) {
       chip("Yanıt bekliyor " + a.awaiting_reply),
       chip("Aktif görev " + a.active_tasks),
       chip("Engelli " + a.blocked_tasks, a.blocked_tasks ? "bad" : "")),
+    aiStatusLine(a),
     el("div", { class: "meta", text: "Son görülme: " + ago(a.last_seen) }),
     a.last_commit ? el("div", { class: "meta", text: "Son commit: " + String(a.last_commit).slice(0, 10) }) : null,
     a.last_sent ? el("div", { class: "meta", text: "Son mesaj → " + a.last_sent.receiver + ": " + a.last_sent.subject }) : null,
@@ -306,7 +336,7 @@ function renderAgents() {
   $("easyForm").classList.toggle("hidden", !isUser);
   $("advAgent").classList.toggle("hidden", !isUser);
   const minute = Math.floor(Date.now() / 60000); // keeps "x dk önce" fresh
-  renderRegion("agents", box, [state.data.agents, minute, state.me], () => {
+  renderRegion("agents", box, [state.data.agents, minute, state.me, state.aiTests, state.data.ai && state.data.ai.providers], () => {
     const list = state.data.agents;
     box.replaceChildren(...(list.length ? list.map(agentCard) : [el("p", { class: "empty", text: "Henüz ajan yok." })]));
   });
@@ -1063,6 +1093,43 @@ function aiRemove(p) {
   return aiChange("/ai/accounts/" + enc(p.name), { method: "DELETE" }, p.name + " silindi");
 }
 
+function testRecord(r) {
+  return r.ok
+    ? { ok: true, latency: r.latency_ms, reply: clip(r.reply, 40), model: r.model }
+    : { ok: false, latency: r.latency_ms, error: r.error || "bilinmeyen hata", model: r.model,
+        label: r.category_label || "Hata", category: r.category, hint: r.hint || "" };
+}
+
+// Every account is tested on its own: one failing (or throwing) never stops the others.
+async function aiTestAll() {
+  const status = $("ezStatus");
+  if (!state.approvalToken) { status.textContent = "Önce kullanıcı tokenını gir."; return; }
+  const list = ((state.data.ai && state.data.ai.providers) || []).filter((p) => p.enabled);
+  if (!list.length) { status.textContent = "Test edilecek açık yapay zekâ hesabı yok."; return; }
+  if (list.some((p) => p.kind === "cloud") && !window.confirm(
+    "Her bulut hesabına küçük bir gerçek istek gönderilecek (günlük bütçeye sayılır). Devam?")) return;
+  const button = $("ezTestAllBtn");
+  button.disabled = true;
+  for (const p of list) state.aiTests[p.name] = { pending: true };
+  renderAgents(); renderAi();
+  let good = 0;
+  for (const p of list) {
+    try {
+      const r = await approvalCall(state.approvalToken, "/ai/providers/" + enc(p.name) + "/test", { method: "POST" });
+      state.aiTests[p.name] = testRecord(r);
+      if (r.ok) good++;
+    } catch (e) {
+      state.aiTests[p.name] = { ok: false, error: e.message || "test başarısız", label: "Hata" };
+    }
+    state.signatures.agents = null;
+    renderAgents(); renderAi();
+  }
+  touchApprovalToken();
+  status.textContent = good + "/" + list.length + " hesap çalışıyor. Ayrıntı her ajanın kartında.";
+  button.disabled = false;
+  refreshAi();
+}
+
 async function aiTest(p) {
   if (!state.approvalToken) { toast("Önce kullanıcı tokenını gir", true); return; }
   if (p.kind === "cloud" && !window.confirm("'" + p.name +
@@ -1072,11 +1139,9 @@ async function aiTest(p) {
   try {
     const r = await approvalCall(state.approvalToken, "/ai/providers/" + enc(p.name) + "/test", { method: "POST" });
     touchApprovalToken();
-    state.aiTests[p.name] = r.ok
-      ? { ok: true, latency: r.latency_ms, reply: clip(r.reply, 40) }
-      : { ok: false, latency: r.latency_ms, error: r.error || "bilinmeyen hata" };
+    state.aiTests[p.name] = testRecord(r);
   } catch (e) {
-    state.aiTests[p.name] = { ok: false, error: e.message || "test başarısız" };
+    state.aiTests[p.name] = { ok: false, error: e.message || "test başarısız", label: "Hata" };
   }
   state.signatures.ai = null;
   renderAi();
@@ -1088,7 +1153,8 @@ async function aiAdd(ev) {
   if (!state.approvalToken) { toast("Önce kullanıcı tokenını gir", true); return; }
   const name = $("aiName").value.trim().toLowerCase();
   const kind = $("aiKind").value;
-  const apiKey = $("aiKey").value;
+  const apiKey = cleanKey($("aiKey").value);
+  if (apiKey === null) { toast("API anahtarında boşluk ya da geçersiz karakter var", true); return; }
   if (!AI_NAME_RE.test(name)) { toast("Ad 2-31 karakter olmalı: a-z, 0-9, - veya _", true); return; }
   if (kind === "cloud" && !apiKey) { toast("Bulut hesabı için API anahtarı gerekli", true); return; }
   const body = {
@@ -1167,13 +1233,16 @@ async function easyAdd(ev) {
   if (!state.approvalToken) { status.textContent = "Önce Onaylar sekmesinden kullanıcı tokenını gir (kurulu uygulamada hazır gelir)."; return; }
   const preset = EASY_PRESETS[$("ezProvider").value];
   const name = $("ezName").value.trim().toLowerCase();
-  const secret = $("ezKey").value.trim();
+  const rawSecret = $("ezKey").value;
+  const secret = cleanKey(rawSecret);
+  $("ezKey").value = ""; // the secret leaves the form before anything is sent, success or not
+  if (secret === null) { status.textContent = "API anahtarında boşluk ya da geçersiz karakter var: console.x.ai'den tekrar kopyala."; return; }
   if (!AGENT_NAME_RE.test(name)) { status.textContent = "Ad 2-20 karakter: a-z, 0-9, - veya _ (harfle başlar)."; return; }
   if (preset.kind === "cloud" && !secret) { status.textContent = "API anahtarını yukarıdaki kutuya yapıştır."; return; }
   if (!$("ezUrl").value.trim() || !$("ezModel").value.trim()) { status.textContent = "Adres ve model boş olamaz."; return; }
-  const body = { name, kind: preset.kind, base_url: $("ezUrl").value.trim(), model: $("ezModel").value.trim(), enabled: true };
+  const fixedUrl = $("ezProvider").value === "grok" ? "https://api.x.ai/v1" : $("ezUrl").value.trim(); // Grok address is locked
+  const body = { name, kind: preset.kind, base_url: fixedUrl, model: $("ezModel").value.trim(), enabled: true };
   if (secret) body.api_key = secret;
-  $("ezKey").value = ""; // the secret leaves the form before anything is sent, success or not
   const button = $("ezAddBtn");
   button.disabled = true; // no double submit
   status.textContent = "Anahtar kontrol ediliyor…";
@@ -1191,7 +1260,7 @@ async function easyAdd(ev) {
       }
     } catch (e) {
       // a wrong key / address is reported right here; "this address has no model list" just keeps the typed model
-      if (/HTTP 40[13]|ulaşılamadı/.test(e.message || "")) throw e;
+      if (/HTTP 40[123]|ulaşılamadı/.test(e.message || "")) throw e;
     }
     status.textContent = "Ekleniyor…";
     await approvalCall(state.approvalToken, "/ai/accounts", { method: "POST", body });
@@ -1201,7 +1270,10 @@ async function easyAdd(ev) {
     let verdict = "";
     try {
       const t = await approvalCall(state.approvalToken, "/ai/providers/" + name + "/test", { method: "POST", body: {} });
-      verdict = t && t.ok ? "Çalışıyor (" + t.latency_ms + " ms)." : "Eklendi ama deneme başarısız: " + ((t && t.error) || "bilinmeyen hata") + ". Model adını ya da anahtarı kontrol et.";
+      state.aiTests[name] = testRecord(t || {});
+      verdict = t && t.ok ? "Çalışıyor (" + t.latency_ms + " ms, model " + t.model + ")."
+        : "Eklendi ama bağlanamadı — " + ((t && t.category_label) || "Hata") + ": " + ((t && t.error) || "bilinmeyen hata")
+          + ((t && t.hint) ? ". " + t.hint : "");
     } catch (e) { verdict = "Eklendi ama deneme yapılamadı: " + (e.message || "hata"); }
     status.textContent = name + " eklendi. " + verdict;
     toast(name + " eklendi");
@@ -1367,6 +1439,7 @@ function init() {
   $("ezProvider").replaceChildren(...Object.entries(EASY_PRESETS).map(([key, p]) => el("option", { value: key, text: p.label })));
   $("ezProvider").addEventListener("change", easyPick);
   $("easyForm").addEventListener("submit", easyAdd);
+  $("ezTestAllBtn").addEventListener("click", aiTestAll);
   easyPick();
   $("agentForm").addEventListener("submit", agentAdd);
   $("notifyBtn").addEventListener("click", enableNotifications);

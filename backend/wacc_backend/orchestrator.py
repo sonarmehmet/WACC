@@ -11,6 +11,7 @@ talks to language models):
 
 import json
 import re
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -27,7 +28,60 @@ LOCAL, CLOUD = "local", "cloud"
 
 
 class ProviderError(Exception):
-    """A provider failed; the router may fall back to the next one."""
+    """A provider failed; the router may fall back to the next one.
+
+    category separates API-side problems from model problems: key (wrong/missing/management key), credits (no
+    balance or licence), model (unknown model name), rate, network, format, other. hint is a Turkish next step."""
+
+    def __init__(self, message, category="other", hint=""):
+        super().__init__(message)
+        self.category = category
+        self.hint = hint
+
+
+_ZERO_WIDTH = dict.fromkeys(map(ord, "\u200b\u200c\u200d\u2060\ufeff\u00a0"), None)
+_QUOTES = "\"'`\u201c\u201d\u2018\u2019"
+
+
+def clean_key(raw) -> str:
+    """Make a pasted API key usable: drop spaces/newlines/zero-width characters, surrounding quotes and a leading
+    'Bearer '. Raises ValueError for something that cannot be a key (inner spaces, non-ASCII, too long)."""
+    key = str(raw or "").translate(_ZERO_WIDTH).strip()
+    for _ in range(3):
+        key = key.strip().strip(_QUOTES).strip()
+        if key.lower().startswith("bearer "):
+            key = key[7:]
+        if key.lower().startswith(("api_key=", "api-key=", "authorization:")):
+            key = key.split("=", 1)[-1].split(":", 1)[-1]
+    key = key.strip()
+    if len(key) > 500 or any(c.isspace() for c in key) or not key.isascii() or not key.isprintable():
+        raise ValueError("API anahtarı geçersiz karakter içeriyor (boşluk, Türkçe/özel karakter ya da çok uzun)")
+    return key
+
+
+def classify_http(code: int, detail: str, host: str = "") -> tuple:
+    """(category, Turkish hint) for an HTTP error from a provider. API problems and model problems stay apart."""
+    d = (detail or "").lower()
+    xai = host.endswith("x.ai")
+    if "management" in d:
+        return "key", "Management API Key kullanılmış olabilir; sohbet için console.x.ai > API Keys bölümündeki normal anahtar gerekir"
+    if code == 402 or (code == 403 and any(w in d for w in ("credit", "licen", "balance", "billing", "spending"))):
+        return "credits", ("Anahtar geçerli ama hesapta kredi/lisans yok: console.x.ai > Billing'den kredi ekle" if xai
+                           else "Hesapta kredi/bakiye yok: sağlayıcının faturalama sayfasından ekle")
+    if code in (401, 403) or (code == 400 and any(w in d for w in ("api key", "api-key", "apikey", "invalid key", "authentication"))):
+        return "key", ("API anahtarı geçersiz: console.x.ai > API Keys'ten yeni normal anahtar oluştur (Management Key çalışmaz)"
+                       if xai else "API anahtarı geçersiz: sağlayıcının panelinden yeni anahtar al")
+    if code == 404 or (code in (400, 422) and "model" in d):
+        return "model", "Model adı bu hesapta yok: Ajanlar'dan hesabı model listesiyle yeniden ekle"
+    if code == 429:
+        return "rate", "İstek sınırı doldu; biraz bekleyip yeniden dene"
+    if code >= 500:
+        return "network", "Sağlayıcı tarafında geçici hata; biraz sonra yeniden dene"
+    return "other", ""
+
+
+CATEGORY_LABEL = {"key": "API anahtarı", "credits": "Kredi/lisans", "model": "Model adı", "rate": "İstek sınırı",
+                  "network": "Bağlantı", "format": "Yanıt biçimi", "other": "Hata"}
 
 
 class OrchestratorError(StorageError):
@@ -85,8 +139,11 @@ class OpenAICompatProvider(Provider):
         super().__init__(name=name, kind=kind, model=model, price_in_per_1k=price_in_per_1k,
                          price_out_per_1k=price_out_per_1k)
         self.base_url = validate_base_url(base_url, kind)
-        self._api_key = api_key  # never exposed through repr(), errors or the ledger
+        self._api_key = clean_key(api_key) if api_key else None  # never exposed through repr(), errors or the ledger
         self.timeout = timeout
+        self.host = (urlsplit(self.base_url).hostname or "").lower()
+        # xAI: the Responses API is the supported path for Grok 4.x (chat completions is legacy). Others: chat.
+        self.api = "responses" if self.host == "api.x.ai" else "chat"
 
     def __repr__(self):
         return f"OpenAICompatProvider(name={self.name!r}, kind={self.kind!r}, model={self.model!r})"
@@ -106,31 +163,63 @@ class OpenAICompatProvider(Provider):
         with self._opener().open(req, timeout=self.timeout) as resp:
             return json.loads(resp.read(5_000_000))
 
-    def complete(self, prompt, system, max_tokens):
+    def _responses(self, prompt, system, max_tokens):
+        body = {"model": self.model, "input": ([{"role": "system", "content": system}] if system else [])
+                + [{"role": "user", "content": prompt}], "max_output_tokens": max(16, max_tokens), "store": False}
+        data = self._call("/responses", body)
+        if data.get("error"):
+            raise ValueError("error object")
+        text = ""
+        for item in data.get("output") or []:
+            if item.get("type") == "message":
+                for part in item.get("content") or []:
+                    if part.get("type") in ("output_text", "text"):
+                        text += part.get("text") or ""
+        if not text and isinstance(data.get("output_text"), str):
+            text = data["output_text"]
+        usage = data.get("usage") or {}
+        return Completion(text, int(usage.get("input_tokens") or usage.get("prompt_tokens") or estimate_tokens(prompt)),
+                          int(usage.get("output_tokens") or usage.get("completion_tokens") or estimate_tokens(text)),
+                          self.model)
+
+    def _chat(self, prompt, system, max_tokens):
         messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
         body = {"model": self.model, "messages": messages, "max_tokens": max_tokens}
         try:
-            try:
+            data = self._call("/chat/completions", body)
+        except urllib.error.HTTPError as exc:
+            # Newer models (OpenAI o-series/gpt-5, some reasoning models) only accept max_completion_tokens.
+            if exc.code == 400 and "max_tokens" in error_detail(exc).lower():
+                body["max_completion_tokens"] = body.pop("max_tokens")
                 data = self._call("/chat/completions", body)
-            except urllib.error.HTTPError as exc:
-                detail = error_detail(exc)
-                # Newer models (OpenAI o-series/gpt-5, some reasoning models) only accept max_completion_tokens.
-                if exc.code == 400 and "max_tokens" in detail.lower():
-                    body["max_completion_tokens"] = body.pop("max_tokens")
-                    data = self._call("/chat/completions", body)
-                else:
-                    raise
-            text = data["choices"][0]["message"]["content"] or ""
-            usage = data.get("usage") or {}
-            return Completion(text, int(usage.get("prompt_tokens") or estimate_tokens(prompt)),
-                              int(usage.get("completion_tokens") or estimate_tokens(text)), self.model)
+            else:
+                raise
+        text = data["choices"][0]["message"]["content"] or ""
+        usage = data.get("usage") or {}
+        return Completion(text, int(usage.get("prompt_tokens") or estimate_tokens(prompt)),
+                          int(usage.get("completion_tokens") or estimate_tokens(text)), self.model)
+
+    def complete(self, prompt, system, max_tokens):
+        try:
+            if self.api == "responses":
+                try:
+                    return self._responses(prompt, system, max_tokens)
+                except urllib.error.HTTPError as exc:
+                    # Only an endpoint that does not know /responses falls back; key/credit/model errors are final.
+                    if exc.code not in (404, 405, 501) or "model" in error_detail(exc).lower():
+                        raise
+                    self.api = "chat"
+            return self._chat(prompt, system, max_tokens)
         except urllib.error.HTTPError as exc:
             detail = error_detail(exc)
-            raise ProviderError(f"{self.name}: HTTP {exc.code}" + (f" ({detail})" if detail else ""))
+            category, hint = classify_http(exc.code, detail, self.host)
+            raise ProviderError(f"{self.name}: HTTP {exc.code}" + (f" ({detail})" if detail else ""), category, hint)
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            raise ProviderError(f"{self.name}: unreachable ({type(exc).__name__})")
-        except (ValueError, KeyError, IndexError, TypeError):
-            raise ProviderError(f"{self.name}: malformed response")
+            raise ProviderError(f"{self.name}: unreachable ({type(exc).__name__})", "network",
+                                "Adrese ulaşılamadı: internet bağlantısını ya da adresi kontrol et")
+        except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+            raise ProviderError(f"{self.name}: malformed response", "format",
+                                "Yanıt beklenen biçimde değil: adres/model bu API ile uyumlu mu?")
 
 
 def error_detail(exc) -> str:
@@ -161,12 +250,13 @@ def discover_models(base_url: str, kind: str, api_key: Optional[str], timeout: i
         ids = sorted({str(m["id"]) for m in (data.get("data") if isinstance(data, dict) else data) or [] if m.get("id")})
     except urllib.error.HTTPError as exc:
         detail = error_detail(exc)
+        category, why = classify_http(exc.code, detail, probe.host)
         hint = " (API anahtarı geçersiz ya da bu adres için değil)" if exc.code in (401, 403) else ""
-        raise ProviderError(f"HTTP {exc.code}{hint}" + (f": {detail}" if detail else ""))
+        raise ProviderError(f"HTTP {exc.code}{hint}" + (f": {detail}" if detail else ""), category, why)
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise ProviderError(f"adrese ulaşılamadı ({type(exc).__name__})")
+        raise ProviderError(f"adrese ulaşılamadı ({type(exc).__name__})", "network")
     except (ValueError, KeyError, TypeError, AttributeError):
-        raise ProviderError("adres model listesi vermedi (OpenAI uyumlu değil)")
+        raise ProviderError("adres model listesi vermedi (OpenAI uyumlu değil)", "format")
     return ids
 
 
@@ -224,6 +314,7 @@ class Orchestrator:
         self.storage = storage
         self.providers: Dict[str, Provider] = {}
         self.disabled: set = set()
+        self.cooldown: Dict[str, float] = {}  # name -> monotonic time until auto-routing skips a broken account
         self.account_names: set = set()  # added at runtime by the user (removable); the rest come from env/tests
         for p in providers or []:
             self.add_provider(p)
@@ -253,6 +344,13 @@ class Orchestrator:
             raise OrchestratorError("NOT_FOUND", f"Unknown provider {name!r}")
         (self.disabled.discard if enabled else self.disabled.add)(name)
 
+    def _note_failure(self, name: str, exc: ProviderError) -> None:
+        """A wrong key / no credits / unknown model will not fix itself in seconds: skip that one account for 5 minutes
+        (other accounts keep working; an explicit test or a request naming the account still tries it)."""
+        if getattr(exc, "category", "other") in ("key", "credits", "model"):
+            import time as _time
+            self.cooldown[name] = _time.monotonic() + 300
+
     def test_provider(self, name: str) -> dict:
         """One tiny real request (works even when the account is switched off). Counts toward the usage ledger."""
         import time as _time
@@ -266,10 +364,16 @@ class Orchestrator:
             out = p.complete("Reply with the single word OK.", None, 16)
         except ProviderError as exc:
             self._record(p, 0, 0, 0.0, False, str(exc))
-            return {"ok": False, "provider": name, "error": scrub(str(exc)),
-                    "latency_ms": int((_time.monotonic() - started) * 1000)}
+            self._note_failure(name, exc)
+            category = getattr(exc, "category", "other")
+            return {"ok": False, "provider": name, "model": p.model, "error": scrub(str(exc)),
+                    "category": category, "category_label": CATEGORY_LABEL.get(category, "Hata"),
+                    "hint": getattr(exc, "hint", ""), "base_url": getattr(p, "base_url", ""),
+                    "api": getattr(p, "api", "chat"), "latency_ms": int((_time.monotonic() - started) * 1000)}
+        self.cooldown.pop(name, None)
         self._record(p, out.tokens_in, out.tokens_out, p.cost(out.tokens_in, out.tokens_out), True)
         return {"ok": True, "provider": name, "model": out.model, "reply": scrub(out.text)[:60],
+                "base_url": getattr(p, "base_url", ""), "api": getattr(p, "api", "chat"),
                 "latency_ms": int((_time.monotonic() - started) * 1000)}
 
     # ----------------------------------------------------------------- budget
@@ -326,6 +430,8 @@ class Orchestrator:
         return [{"name": p.name, "kind": p.kind, "model": p.model,
                  "price_in_per_1k": p.price_in_per_1k, "price_out_per_1k": p.price_out_per_1k,
                  "enabled": p.name not in self.disabled,
+                 "base_url": getattr(p, "base_url", ""), "api": getattr(p, "api", "chat"),
+                 "cooling_down": self.cooldown.get(p.name, 0) > time.monotonic(),
                  "source": "account" if p.name in self.account_names else "env"}
                 for p in self.providers.values()]
 
@@ -338,7 +444,9 @@ class Orchestrator:
             return [self.providers[only]]
         if prefer not in ("local", "cloud", "auto"):
             raise OrchestratorError("BAD_PREFERENCE", "prefer must be local, cloud or auto")
-        active = [p for p in self.providers.values() if p.name not in self.disabled]
+        import time as _time
+        now = _time.monotonic()
+        active = [p for p in self.providers.values() if p.name not in self.disabled and self.cooldown.get(p.name, 0) <= now]
         locals_ = [p for p in active if p.kind == LOCAL]
         clouds = [p for p in active if p.kind == CLOUD]
         return clouds + locals_ if prefer == "cloud" else locals_ + clouds
@@ -365,9 +473,11 @@ class Orchestrator:
                 out = p.complete(prompt, system, int(max_tokens))
             except ProviderError as exc:
                 self._record(p, 0, 0, 0.0, False, str(exc))
+                self._note_failure(p.name, exc)
                 errors.append(str(exc))
                 continue
             cost = p.cost(out.tokens_in, out.tokens_out)
+            self.cooldown.pop(p.name, None)
             self._record(p, out.tokens_in, out.tokens_out, cost, True)
             return {"text": out.text, "provider": p.name, "kind": p.kind, "model": out.model,
                     "tokens_in": out.tokens_in, "tokens_out": out.tokens_out, "cost_usd": cost,

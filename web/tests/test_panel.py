@@ -853,6 +853,21 @@ class FrontendSourceTests(unittest.TestCase):
         self.assertEqual(json.loads(result.stdout), [])
 
     @unittest.skipUnless(shutil.which("node"), "node not installed")
+    def test_pasted_api_key_is_cleaned(self):
+        result = subprocess.run(["node", str(WEB / "tests" / "clean_key_cases.js")], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), [])
+
+    def test_agent_cards_show_ai_status_and_each_account_is_tested_alone(self):
+        source = (WEB / "public" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("aiStatusLine(a)", source)
+        body = source[source.index("async function aiTestAll"):source.index("async function aiTest(p)")]
+        self.assertIn("try {", body)          # a failing account never stops the loop
+        self.assertIn("catch (e)", body)
+        self.assertIn("https://api.x.ai/v1", source)  # Grok address is locked
+        self.assertNotIn("localStorage", body)
+
+    @unittest.skipUnless(shutil.which("node"), "node not installed")
     def test_voice_command_parser(self):
         result = subprocess.run(["node", str(WEB / "tests" / "voice_parse_cases.js")], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
