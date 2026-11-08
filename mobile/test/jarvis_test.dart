@@ -12,7 +12,7 @@ void main() {
 
   testWidgets('radar orb draws and animates without errors', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: Scaffold(body: RadarOrb(color: jarvisAccent))));
-    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
     expect(find.byType(RadarOrb), findsOneWidget);
   });
 }

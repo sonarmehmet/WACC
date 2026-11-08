@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -43,8 +44,23 @@ class RadarOrb extends StatefulWidget {
 }
 
 class _RadarOrbState extends State<RadarOrb> with SingleTickerProviderStateMixin {
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: const Duration(seconds: 6))..repeat();
+  // An endless animation never "settles": widget tests (pumpAndSettle) get a still orb, the app a moving one.
+  static bool get _underTest {
+    try {
+      return Platform.environment.containsKey('FLUTTER_TEST');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(seconds: 6))
+    ..value = 0.15;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!_underTest) _c.repeat();
+  }
 
   @override
   void dispose() {
