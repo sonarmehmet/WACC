@@ -32,7 +32,7 @@ DEFAULT_PORT = int(os.environ.get("WACC_WEB_PORT", "8780"))
 # Backend paths the panel may read (exact match, GET only). Memory, AI calls and every other
 # endpoint are deliberately not exposed here.
 BACKEND_GET_PATHS = frozenset({
-    "/health", "/projects", "/jobs", "/jobs/summary", "/agents", "/ai/providers", "/ai/usage",
+    "/health", "/workspaces", "/projects", "/jobs", "/jobs/summary", "/agents", "/ai/providers", "/ai/usage",
     "/exec/approvals", "/exec/status", "/exec/audit",
 })
 # The only backend writes the panel may forward. Who may do them is still decided by the
@@ -45,10 +45,11 @@ _AI_NAME = r"[a-z0-9][a-z0-9_-]{1,30}"
 BACKEND_POST_PATHS = re.compile(
     r"^(?:/exec/(?:approvals/[0-9]{1,9}/(?:approve|deny)|stop|resume)"
     r"|/ai/accounts|/ai/complete|/ai/discover"
+    r"|/workspaces|/workspaces/[a-z0-9][a-z0-9_-]{1,30}/agents"
     r"|/ai/providers/" + _AI_NAME + r"/(?:enabled|test))$")
 # Hub: removing a user-managed agent. The Hub alone decides (user token only; built-ins are refused).
 HUB_DELETE_PATHS = re.compile(r"^/api/agents/[a-z][a-z0-9_-]{1,19}$")
-BACKEND_DELETE_PATHS = re.compile(r"^/ai/accounts/" + _AI_NAME + r"$")
+BACKEND_DELETE_PATHS = re.compile(r"^(?:/ai/accounts/" + _AI_NAME + r"|/workspaces/" + _AI_NAME + r"(?:/agents/[a-z][a-z0-9_-]{1,19})?)$")
 MAX_BODY = 1_000_000
 LOCAL_NAMES = {"127.0.0.1", "localhost", "[::1]"}
 FORWARDED_HEADERS = ("X-WACC-Token", "Content-Type")
@@ -67,6 +68,17 @@ _DESKTOP = {"nonce": None, "tokens": None, "quit_token": "", "on_quit": None, "o
             "sessions": set(), "last_ping": time.time()}
 _DESKTOP_LOCK = threading.Lock()
 _DIAG = {"fn": None}
+
+
+def _open_folder(path: str) -> bool:
+    """Show a folder in Explorer (Windows only)."""
+    if os.name != "nt":
+        return False
+    os.startfile(path)  # type: ignore[attr-defined]  # nosec B606 - path comes from the user's own project list
+    return True
+
+
+_OPEN = {"fn": _open_folder}
 
 
 def set_diag(fn) -> None:
@@ -162,6 +174,8 @@ def make_handler(hub_url: str, backend_url: str = DEFAULT_BACKEND):
                 return self._json(200, {"ok": True})
             if self.path == "/_wacc/quit":
                 return self._quit()
+            if self.path == "/_wacc/open-folder":
+                return self._open_folder()
             if self.path == "/_wacc/reopen":
                 # a second start of WACC asks the running one for a window instead of failing on busy ports;
                 # it can only make a window appear (the tokens stay behind the one-time key)
@@ -212,6 +226,28 @@ def make_handler(hub_url: str, backend_url: str = DEFAULT_BACKEND):
                 return self._json(403, {"detail": {"code": "NO_HANDOFF", "message": "Hand-off key invalid or used"}})
             self._send(200, json.dumps({k: tokens.get(k, "") for k in ("hub", "backend", "user")}).encode("utf-8"),
                        extra=extra)
+
+        def _open_folder(self):
+            """Open a project's folder in Explorer. Needs the user token and only opens folders that are on the
+            Backend's project list (the panel cannot make this open an arbitrary path)."""
+            token = self.headers.get("X-WACC-Token", "")
+            with _DESKTOP_LOCK:
+                expected = _DESKTOP["quit_token"]
+            if not (expected and hmac.compare_digest(token.encode(), expected.encode())):
+                return self._json(403, {"detail": {"code": "FORBIDDEN", "message": "User token required"}})
+            raw = self._read_body()
+            if raw is None:
+                return
+            try:
+                name = str(json.loads(raw or b"{}").get("name", ""))
+                req = urlrequest.Request(backend_url + "/workspaces", headers={"X-WACC-Token": token})
+                with _OPENER.open(req, timeout=10) as resp:
+                    folder = next(w["folder"] for w in json.loads(resp.read()) if w["name"] == name)
+            except (ValueError, StopIteration, KeyError, TypeError, OSError):
+                return self._json(404, {"detail": {"code": "NOT_FOUND", "message": "Proje bulunamadi"}})
+            if not _OPEN["fn"](folder):
+                return self._json(501, {"detail": {"code": "NOT_SUPPORTED", "message": "Klasoru yalnizca Windows uygulamasi acabilir"}})
+            self._json(200, {"ok": True})
 
         def _quit(self):
             token = self.headers.get("X-WACC-Token", "")

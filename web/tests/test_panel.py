@@ -617,6 +617,75 @@ class BackendProxyTests(unittest.TestCase):
         self.assertEqual(body["detail"]["code"], "BACKEND_UNREACHABLE")
 
 
+class WorkspacePanelTests(unittest.TestCase):
+    """Projects: the panel forwards only the project routes and can open only folders on the Backend's project list."""
+
+    @classmethod
+    def setUpClass(cls):
+        class FakeBackend(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                body = json.dumps([{"name": "site", "title": "Site", "folder": "/tmp/site", "agents": [], "exists": True}]
+                                  if self.headers.get("X-WACC-Token") == "USERTOK" else {"detail": "no"}).encode()
+                self.send_response(200 if self.headers.get("X-WACC-Token") == "USERTOK" else 401)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(body)
+
+        cls.back = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeBackend)
+        threading.Thread(target=cls.back.serve_forever, daemon=True).start()
+        cls.panel = serve.create_server(0, "http://127.0.0.1:1", "http://127.0.0.1:%d" % cls.back.server_address[1])
+        cls.port = cls.panel.server_address[1]
+        threading.Thread(target=cls.panel.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        for srv in (cls.panel, cls.back):
+            srv.shutdown()
+            srv.server_close()
+
+    def call(self, method, path, body=None, token="USERTOK"):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        try:
+            conn.request(method, path, body=json.dumps(body) if body is not None else None,
+                         headers={"X-WACC-Token": token, "Content-Type": "application/json"})
+            resp = conn.getresponse()
+            return resp.status, resp.read()
+        finally:
+            conn.close()
+
+    def setUp(self):
+        self.opened = []
+        serve._OPEN["fn"] = lambda path: self.opened.append(path) or True
+        serve.arm_desktop("k" * 24, {"hub": "H", "backend": "B", "user": "USERTOK"}, lambda: None)
+
+    def tearDown(self):
+        serve._OPEN["fn"] = serve._open_folder
+
+    def test_project_routes_are_allow_listed(self):
+        post, delete = serve.BACKEND_POST_PATHS, serve.BACKEND_DELETE_PATHS
+        for path in ("/workspaces", "/workspaces/site/agents"):
+            self.assertTrue(post.fullmatch(path), path)
+        for path in ("/workspaces/site", "/workspaces/site/agents/claude1"):
+            self.assertTrue(delete.fullmatch(path), path)
+        for path in ("/workspaces/../exec", "/workspaces/Site", "/workspaces/site/agents/../x", "/workspaces/site/files"):
+            self.assertFalse(post.fullmatch(path) or delete.fullmatch(path), path)
+        self.assertIn("/workspaces", serve.BACKEND_GET_PATHS)
+        status, raw = self.call("GET", "/backend/workspaces")
+        self.assertEqual((status, json.loads(raw)[0]["name"]), (200, "site"))
+
+    def test_open_folder_needs_user_token_and_a_listed_project(self):
+        self.assertEqual(self.call("POST", "/_wacc/open-folder", {"name": "site"}, token="BETOK")[0], 403)
+        self.assertEqual(self.opened, [])
+        self.assertEqual(self.call("POST", "/_wacc/open-folder", {"name": "../../Windows"})[0], 404)
+        self.assertEqual(self.call("POST", "/_wacc/open-folder", {"name": "nope"})[0], 404)
+        self.assertEqual(self.opened, [])
+        self.assertEqual(self.call("POST", "/_wacc/open-folder", {"name": "site"})[0], 200)
+        self.assertEqual(self.opened, ["/tmp/site"])
+
+
 class DesktopHandoffTests(unittest.TestCase):
     """The installed app opens this panel in its own window; the page trades a one-time key for the tokens."""
 
@@ -851,6 +920,16 @@ class FrontendSourceTests(unittest.TestCase):
         result = subprocess.run(["node", str(WEB / "tests" / "model_pick_cases.js")], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout), [])
+
+    def test_projects_tab_exists_and_uses_only_project_routes(self):
+        source = (WEB / "public" / "app.js").read_text(encoding="utf-8")
+        html = (WEB / "public" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('data-tab="projects"', html)
+        self.assertIn('id="tab-projects"', html)
+        body = source[source.index("async function refreshProjects"):source.index("async function projectAdd")]
+        self.assertIn('"/workspaces"', body)
+        self.assertNotIn("localStorage", body)
+        self.assertIn("SİLİNMEZ", body)  # removing a project says the files stay
 
     def test_chat_request_has_a_timeout(self):
         source = (WEB / "public" / "app.js").read_text(encoding="utf-8")

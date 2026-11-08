@@ -17,6 +17,7 @@
   const TABS = [
     [/\b(yapay zeka|yapay zek|ai hesap)/, "ai", "Yapay Zeka"],
     [/\bonay(lar|lari|ları)?\b/, "approvals", "Onaylar"],
+    [/\bproje(ler|leri)?\b/, "projects", "Projeler"],
     [/\b(gorev|gorevler|gorevleri)\b/, "tasks", "Görevler"],
     [/\b(akis|mesajlar|mesajlari)\b/, "feed", "Akış"],
     [/\b(kilit|kilitler|kilitleri)\b/, "locks", "Kilitler"],

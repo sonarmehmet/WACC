@@ -30,7 +30,7 @@ const state = {
   me: null,
   tab: "agents",
   conversation: null,
-  data: { agents: [], feed: [], tasks: [], locks: [], emergency: false, backend: null },
+  data: { agents: [], feed: [], tasks: [], locks: [], emergency: false, backend: null, workspaces: null },
   busy: false,
   again: false,
   backendBusy: false,
@@ -318,6 +318,11 @@ function aiStatusLine(a) {
     t && !t.ok && !t.pending && t.hint ? el("div", { class: "meta hint", text: "→ " + t.hint }) : null);
 }
 
+function projectLine(a) {
+  const mine = ((state.data.workspaces) || []).filter((w) => w.agents.includes(a.agent_id)).map((w) => w.title);
+  return el("div", { class: "meta", text: "Proje: " + (mine.length ? mine.join(", ") : "yok (varsayılan klasör)") });
+}
+
 function agentCard(a) {
   const off = a.enabled === 0 || a.enabled === false;
   return el("article", { class: "card agent" + (off ? " off" : "") },
@@ -334,6 +339,7 @@ function agentCard(a) {
       chip("Aktif görev " + a.active_tasks),
       chip("Engelli " + a.blocked_tasks, a.blocked_tasks ? "bad" : "")),
     aiStatusLine(a),
+    projectLine(a),
     el("div", { class: "meta", text: "Son görülme: " + ago(a.last_seen) }),
     a.last_commit ? el("div", { class: "meta", text: "Son commit: " + String(a.last_commit).slice(0, 10) }) : null,
     a.last_sent ? el("div", { class: "meta", text: "Son mesaj → " + a.last_sent.receiver + ": " + a.last_sent.subject }) : null,
@@ -347,7 +353,7 @@ function renderAgents() {
   $("easyForm").classList.toggle("hidden", !isUser);
   $("advAgent").classList.toggle("hidden", !isUser);
   const minute = Math.floor(Date.now() / 60000); // keeps "x dk önce" fresh
-  renderRegion("agents", box, [state.data.agents, minute, state.me, state.aiTests, state.data.ai && state.data.ai.providers], () => {
+  renderRegion("agents", box, [state.data.agents, minute, state.me, state.data.workspaces, state.aiTests, state.data.ai && state.data.ai.providers], () => {
     const list = state.data.agents;
     box.replaceChildren(...(list.length ? list.map(agentCard) : [el("p", { class: "empty", text: "Henüz ajan yok." })]));
   });
@@ -1356,6 +1362,107 @@ async function refresh() {
   }
 }
 
+
+/* -------------------------------------------------------------------- projects */
+
+async function refreshProjects() {
+  const token = viewToken();
+  if (!token) { state.data.workspaces = null; renderProjects(); return; }
+  try {
+    state.data.workspaces = await approvalCall(token, "/workspaces");
+  } catch (e) {
+    state.data.workspaces = null;
+    $("pjStatus").textContent = e.status === 401 ? "Backend tokenı geçersiz (Ayarlar)." : (e.message || "Projeler okunamadı");
+  }
+  renderProjects();
+  state.signatures.agents = null;
+  renderAgents();
+}
+
+async function projectCall(path, options, okText) {
+  if (!state.approvalToken) { toast("Önce kullanıcı tokenını gir (kurulu uygulamada hazır gelir)", true); return false; }
+  try {
+    await approvalCall(state.approvalToken, path, options);
+    touchApprovalToken();
+    if (okText) toast(okText);
+    await refreshProjects();
+    return true;
+  } catch (e) {
+    toast(e.message || "İşlem başarısız", true);
+    return false;
+  }
+}
+
+async function projectOpen(w) {
+  if (!state.approvalToken) { toast("Önce kullanıcı tokenını gir", true); return; }
+  try {
+    const res = await fetch("/_wacc/open-folder", {
+      method: "POST", headers: { "X-WACC-Token": state.approvalToken, "Content-Type": "application/json" },
+      body: JSON.stringify({ name: w.name }),
+    });
+    if (!res.ok) throw new Error(res.status === 501 ? "Klasörü yalnızca Windows uygulaması açabilir; yolu kopyalayıp Dosya Gezgini'ne yapıştır." : "Klasör açılamadı");
+  } catch (e) { toast(e.message, true); }
+}
+
+function projectCard(w) {
+  const free = (state.data.agents || []).filter((a) => a.agent_id !== "user" && !w.agents.includes(a.agent_id));
+  const pick = el("select", {}, ...free.map((a) => el("option", { value: a.agent_id, text: a.agent_id })));
+  const isUser = Boolean(state.approvalToken);
+  return el("article", { class: "card project" },
+    el("div", { class: "head" }, el("h3", { text: w.title }), w.exists ? null : chip("klasör yok", "bad")),
+    el("div", { class: "meta mono", text: w.folder }),
+    el("div", { class: "stats" },
+      ...(w.agents.length ? w.agents.map((name) => el("button", {
+        type: "button", class: "chip-button", title: "Projeden çıkar", text: name + " ✕", disabled: !isUser,
+        onclick: () => projectCall("/workspaces/" + enc(w.name) + "/agents/" + enc(name), { method: "DELETE" }, name + " projeden çıkarıldı"),
+      })) : [el("span", { class: "meta", text: "Bu projede ajan yok." })])),
+    el("div", { class: "actions" },
+      free.length ? pick : null,
+      free.length ? el("button", {
+        type: "button", text: "Ajanı projeye ekle", disabled: !isUser,
+        onclick: () => projectCall("/workspaces/" + enc(w.name) + "/agents", { method: "POST", body: { agent: pick.value } }, pick.value + " projeye eklendi"),
+      }) : null,
+      el("button", { type: "button", class: "ghost", text: "Klasörü aç", onclick: () => projectOpen(w) }),
+      el("button", {
+        type: "button", class: "danger", text: "Projeyi kaldır", disabled: !isUser,
+        onclick: () => {
+          if (!window.confirm("'" + w.title + "' projesi listeden kalkacak. Klasör ve dosyalar SİLİNMEZ. Devam?")) return;
+          projectCall("/workspaces/" + enc(w.name), { method: "DELETE" }, "Proje kaldırıldı");
+        },
+      })));
+}
+
+function renderProjects() {
+  const box = $("projects");
+  const list = state.data.workspaces;
+  renderRegion("projects", box, [list, state.data.agents, Boolean(state.approvalToken)], () => {
+    box.replaceChildren(...(list && list.length ? list.map(projectCard)
+      : [el("p", { class: "empty", text: list ? "Henüz proje yok. Yukarıdan ilkini oluştur." : "Projeleri görmek için Backend tokenı gerekir." })]));
+  });
+}
+
+async function projectAdd(ev) {
+  ev.preventDefault();
+  const status = $("pjStatus");
+  const title = $("pjTitle").value.trim();
+  if (title.length < 2) { status.textContent = "Proje adı en az 2 karakter olmalı."; return; }
+  if (!state.approvalToken) { status.textContent = "Önce kullanıcı tokenını gir (kurulu uygulamada hazır gelir)."; return; }
+  const button = $("pjAddBtn");
+  button.disabled = true;
+  try {
+    const w = await approvalCall(state.approvalToken, "/workspaces", {
+      method: "POST", body: { title, folder: $("pjFolder").value.trim() || null },
+    });
+    touchApprovalToken();
+    $("pjTitle").value = "";
+    $("pjFolder").value = "";
+    status.textContent = "Proje oluşturuldu. Klasör: " + w.folder;
+    await refreshProjects();
+  } catch (e) {
+    status.textContent = "Oluşturulamadı: " + (e.message || "hata");
+  } finally { button.disabled = false; }
+}
+
 /* ---------------------------------------------------------------- interaction */
 
 function setTab(name) {
@@ -1365,6 +1472,7 @@ function setTab(name) {
   if (name === "backend") refreshBackend();
   if (name === "approvals") refreshApprovals();
   if (name === "ai") refreshAi();
+  if (name === "projects") refreshProjects();
 }
 
 function setConversation(id) {
@@ -1460,6 +1568,7 @@ function init() {
     $("ezStatus").textContent = at ? "Anahtarı buradan al: " + at : "";
   });
   $("easyForm").addEventListener("submit", easyAdd);
+  $("projectForm").addEventListener("submit", projectAdd);
   $("ezTestAllBtn").addEventListener("click", aiTestAll);
   easyPick();
   $("agentForm").addEventListener("submit", agentAdd);
@@ -1575,6 +1684,7 @@ function init() {
     if (state.tab === "backend") refreshBackend(); // backend data is only polled while it is visible
     refreshApprovals(); // cheap pending count always; the full view only on the Onaylar tab
     if (state.tab === "ai") refreshAi();
+    refreshProjects(); // small list; the agent cards show each agent's project
   }, REFRESH_MS);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 }
