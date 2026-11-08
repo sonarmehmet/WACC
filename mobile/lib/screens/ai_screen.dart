@@ -238,6 +238,11 @@ class _AiScreenState extends State<AiScreen> {
                   key: Key('test-${p.name}'),
                 ),
               ),
+            if (t != null && !t.ok && t.category.isNotEmpty)
+              Text('Neden: ${t.category}${t.model.isNotEmpty ? ' · model ${t.model}' : ''}',
+                  style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            if (t != null && !t.ok && t.hint.isNotEmpty)
+              Text('→ ${t.hint}', style: Theme.of(context).textTheme.bodySmall),
             Wrap(
               spacing: 8,
               children: [

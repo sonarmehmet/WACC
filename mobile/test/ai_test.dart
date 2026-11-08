@@ -126,6 +126,17 @@ void main() {
       expect(bad.error, 'boom');
       expect(bad.latencyMs, 7);
     });
+
+    test('AiTestResult keeps model, failure category and hint', () {
+      final r = AiTestResult.fromJson({
+        'ok': false,
+        'model': 'grok-4.7',
+        'error': 'grok1: HTTP 400',
+        'category_label': 'API anahtarı',
+        'hint': 'Yeni anahtar oluştur',
+      });
+      expect((r.model, r.category, r.hint), ('grok-4.7', 'API anahtarı', 'Yeni anahtar oluştur'));
+    });
   });
 
   group('BackendClient AI calls', () {

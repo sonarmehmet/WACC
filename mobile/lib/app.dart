@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'app_state.dart';
+import 'jarvis.dart';
 import 'screens/agents_screen.dart';
 import 'screens/approvals_screen.dart';
 import 'screens/chat_screen.dart';
@@ -44,12 +45,9 @@ class _WaccAppState extends State<WaccApp> with WidgetsBindingObserver {
     return MaterialApp(
       title: 'WACC',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(colorSchemeSeed: const Color(0xFF2557D6), useMaterial3: true),
-      darkTheme: ThemeData(
-        colorSchemeSeed: const Color(0xFF6C93FF),
-        brightness: Brightness.dark,
-        useMaterial3: true,
-      ),
+      theme: jarvisTheme(),
+      darkTheme: jarvisTheme(),
+      themeMode: ThemeMode.dark,
       home: HomeShell(state: widget.state),
     );
   }
