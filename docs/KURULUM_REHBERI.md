@@ -192,6 +192,8 @@ Paket kurma, dosya silme, test/derleme çalıştırma gibi işler otomatik çal�
 
 Anahtar yalnızca bu bilgisayarda saklanır, bir daha gösterilmez. Elle ayrıntılı ayar istersen **Yapay Zeka** sekmesi (masaüstü, web ya da telefon) → **Hesap ekle**: ad, tür (yerel/bulut), OpenAI uyumlu adres, model, API anahtarı (yerel için boş) → **Ekle** → **Test et**.
 
+**Ücretsiz seçenekler (kredi kartı gerekmez):** sağlayıcı listesinde **Groq**, **Google Gemini** ve **OpenRouter ücretsiz modeller** var. Anahtarı Groq için console.groq.com/keys, Gemini için aistudio.google.com/apikey, OpenRouter için openrouter.ai/keys adresinden alırsın; listeden seçince adres kutunun altında yazar. Günlük istek sınırları vardır. Gemini'nin ücretsiz katmanında Google içeriği ürün geliştirmede kullanabilir, gizli bilgi gönderme.
+
 **Grok (xAI) için dikkat:** adres `https://api.x.ai/v1`, model `grok-4.7` (anahtarın görebildiği modellere göre otomatik seçilir). WACC Grok'a xAI'nin Responses API'siyle bağlanır. Anahtar console.x.ai → **API Keys** bölümünden alınan **normal** anahtardır; **Management Keys** bölümündeki anahtar sohbet için çalışmaz. Yapıştırdığın anahtarın başındaki/sonundaki boşluk, satır sonu ve tırnak otomatik temizlenir.
 **Hesapları test et:** Ajanlar sekmesindeki **Hesapları test et** düğmesi her yapay zekâ hesabını ayrı ayrı dener. Sonuç her ajanın kartında görünür: model adı, ✔ Bağlı (ms) ya da ✖ hata nedeni (API anahtarı / Kredi-lisans / Model adı / İstek sınırı / Bağlantı) ve ne yapılacağı. Bir hesap bozuksa diğerleri çalışmaya devam eder; bozuk hesap 5 dakika atlanır, hiçbir hesap silinmez.
 

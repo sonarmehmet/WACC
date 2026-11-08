@@ -1181,6 +1181,9 @@ async function aiAdd(ev) {
 
 // Presets: provider -> OpenAI-compatible address, a default model (editable) and the agent kind.
 const EASY_PRESETS = {
+  groq: { label: "Groq (ÜCRETSİZ, kart yok)", kind: "cloud", url: "https://api.groq.com/openai/v1", model: "openai/gpt-oss-120b", agent: "other", prefix: "groq", keyAt: "console.groq.com/keys" },
+  gemini: { label: "Google Gemini (ÜCRETSİZ, kart yok)", kind: "cloud", url: "https://generativelanguage.googleapis.com/v1beta/openai", model: "gemini-3.8-flash", agent: "gemini", prefix: "gemini", keyAt: "aistudio.google.com/apikey (ücretsiz katmanda Google içeriği ürün geliştirmede kullanabilir)" },
+  orfree: { label: "OpenRouter ücretsiz modeller", kind: "cloud", url: "https://openrouter.ai/api/v1", model: "google/gemma-4-31b-it:free", agent: "other", prefix: "orf", keyAt: "openrouter.ai/keys (günde ~50 istek)" },
   grok: { label: "Grok (xAI)", kind: "cloud", url: "https://api.x.ai/v1", model: "grok-4.7", agent: "other", prefix: "grok" },
   openai: { label: "ChatGPT (OpenAI)", kind: "cloud", url: "https://api.openai.com/v1", model: "gpt-4o-mini", agent: "chatgpt", prefix: "gpt" },
   claude: { label: "Claude (Anthropic)", kind: "cloud", url: "https://api.anthropic.com/v1", model: "claude-sonnet-5-5", agent: "claude", prefix: "claude" },
@@ -1208,6 +1211,9 @@ function easyPick() {
 // models the key may use and take one that exists: the current choice if it is listed, else the best match.
 const NOT_CHAT = /embed|image|imagine|vision|video|tts|whisper|audio|moderation|realtime|transcribe|search|dall|guard|rerank/i;
 const MODEL_PREFS = {
+  groq: [/gpt-oss-120b/, /gpt-oss/, /llama.*70b/, /llama/],
+  gemini: [/^gemini-[\d.]+-flash$/, /flash(?!-lite)/, /flash/],
+  orfree: [/gemma.*:free$/, /:free$/],
   grok: [/^grok-\d+(\.\d+)*$/, /^grok-\d+(\.\d+)*-(mini|fast)$/],
   openai: [/^gpt-4o-mini$/, /^gpt-4\.1-mini$/, /^gpt-4o$/, /^gpt-\d/],
   claude: [/^claude-.*sonnet/, /^claude-/],
@@ -1236,7 +1242,7 @@ async function easyAdd(ev) {
   const rawSecret = $("ezKey").value;
   const secret = cleanKey(rawSecret);
   $("ezKey").value = ""; // the secret leaves the form before anything is sent, success or not
-  if (secret === null) { status.textContent = "API anahtarında boşluk ya da geçersiz karakter var: console.x.ai'den tekrar kopyala."; return; }
+  if (secret === null) { status.textContent = "API anahtarında boşluk ya da geçersiz karakter var: sağlayıcının sitesinden tekrar kopyala."; return; }
   if (!AGENT_NAME_RE.test(name)) { status.textContent = "Ad 2-20 karakter: a-z, 0-9, - veya _ (harfle başlar)."; return; }
   if (preset.kind === "cloud" && !secret) { status.textContent = "API anahtarını yukarıdaki kutuya yapıştır."; return; }
   if (!$("ezUrl").value.trim() || !$("ezModel").value.trim()) { status.textContent = "Adres ve model boş olamaz."; return; }
@@ -1251,7 +1257,7 @@ async function easyAdd(ev) {
       const found = await approvalCall(state.approvalToken, "/ai/discover", {
         method: "POST", body: { kind: preset.kind, base_url: body.base_url, ...(secret ? { api_key: secret } : {}) },
       });
-      const ids = (found && found.models) || [];
+      const ids = ((found && found.models) || []).map((id) => String(id).replace(/^models\//, ""));
       const chosen = pickModel($("ezProvider").value, ids, body.model);
       if (chosen !== body.model) {
         status.textContent = "\"" + body.model + "\" bu anahtarda yok; \"" + chosen + "\" kullanılıyor.";
@@ -1437,7 +1443,11 @@ function init() {
   });
   $("aiAddForm").addEventListener("submit", aiAdd);
   $("ezProvider").replaceChildren(...Object.entries(EASY_PRESETS).map(([key, p]) => el("option", { value: key, text: p.label })));
-  $("ezProvider").addEventListener("change", easyPick);
+  $("ezProvider").addEventListener("change", () => {
+    easyPick();
+    const at = EASY_PRESETS[$("ezProvider").value].keyAt;
+    $("ezStatus").textContent = at ? "Anahtarı buradan al: " + at : "";
+  });
   $("easyForm").addEventListener("submit", easyAdd);
   $("ezTestAllBtn").addEventListener("click", aiTestAll);
   easyPick();
