@@ -474,7 +474,8 @@ class Orchestrator:
             except ProviderError as exc:
                 self._record(p, 0, 0, 0.0, False, str(exc))
                 self._note_failure(p.name, exc)
-                errors.append(str(exc))
+                hint = getattr(exc, "hint", "")
+                errors.append(str(exc) + (f" → {hint}" if hint else ""))
                 continue
             cost = p.cost(out.tokens_in, out.tokens_out)
             self.cooldown.pop(p.name, None)
