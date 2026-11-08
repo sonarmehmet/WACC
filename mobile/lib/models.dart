@@ -396,17 +396,31 @@ class AiUsage {
 }
 
 class AiTestResult {
-  const AiTestResult({required this.ok, this.reply = '', this.error = '', this.latencyMs = 0});
+  const AiTestResult({
+    required this.ok,
+    this.reply = '',
+    this.error = '',
+    this.latencyMs = 0,
+    this.model = '',
+    this.category = '',
+    this.hint = '',
+  });
 
   factory AiTestResult.fromJson(Map<String, dynamic> j) => AiTestResult(
         ok: _bool(j['ok']),
         reply: j['reply']?.toString() ?? '',
         error: j['error']?.toString() ?? '',
         latencyMs: _int(j['latency_ms']),
+        model: j['model']?.toString() ?? '',
+        category: j['category_label']?.toString() ?? '',
+        hint: j['hint']?.toString() ?? '',
       );
 
   final bool ok;
   final String reply;
   final String error;
   final int latencyMs;
+  final String model; // the model that was really called
+  final String category; // why it failed: API anahtarı / Kredi-lisans / Model adı / ...
+  final String hint; // what to do about it
 }

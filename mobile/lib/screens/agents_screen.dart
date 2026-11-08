@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
+import '../jarvis.dart';
 import '../models.dart';
 
 class AgentsScreen extends StatelessWidget {
@@ -127,6 +128,31 @@ class AgentsScreen extends StatelessWidget {
     if (err != null && context.mounted) _snack(context, err);
   }
 
+  Widget _statusOrb(BuildContext context) {
+    final Color color;
+    final String label;
+    if (!state.connected) {
+      color = const Color(0xFF56666A);
+      label = 'BAĞLANTI YOK';
+    } else if (state.emergencyStop) {
+      color = jarvisBad;
+      label = 'ACİL DURDURMA AKTİF';
+    } else {
+      color = jarvisAccent;
+      label = 'BEKLEMEDE';
+    }
+    final online = state.agents.where((a) => a.online).length;
+    return Column(
+      children: [
+        RadarOrb(color: color),
+        Text(label, style: TextStyle(color: color, letterSpacing: 3, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 4),
+        Text('$online/${state.agents.length} ajan çevrimiçi', style: Theme.of(context).textTheme.bodySmall),
+        const SizedBox(height: 8),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final agents = state.agents;
@@ -136,6 +162,7 @@ class AgentsScreen extends StatelessWidget {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(12),
         children: [
+          _statusOrb(context),
           if (state.emergencyStop)
             Card(
               color: Theme.of(context).colorScheme.errorContainer,
