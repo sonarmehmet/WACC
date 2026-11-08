@@ -298,8 +298,15 @@ def make_handler(hub_url: str, backend_url: str = DEFAULT_BACKEND):
                     self._send(resp.status, resp.read(), resp.headers.get("Content-Type", "application/json"))
             except urlerror.HTTPError as exc:  # upstream answered with an error: pass it through unchanged
                 self._send(exc.code, exc.read(), exc.headers.get("Content-Type", "application/json"))
-            except (urlerror.URLError, TimeoutError, OSError):
-                self._json(502, {"detail": {"code": unreachable_code, "message": unreachable_message}})
+            except (urlerror.URLError, TimeoutError, OSError) as exc:
+                reason = getattr(exc, "reason", exc)
+                if isinstance(exc, TimeoutError) or isinstance(reason, TimeoutError) or "timed out" in str(reason):
+                    # The Backend is up but the AI account did not answer in time: say that, not "unreachable".
+                    self._json(504, {"detail": {"code": "BACKEND_SLOW", "message":
+                                                "Yapay zekâ hesabı zamanında cevap vermedi (Backend çalışıyor). "
+                                                "Ajanlar > Hesapları test et ile hangi hesabın takıldığına bak."}})
+                else:
+                    self._json(502, {"detail": {"code": unreachable_code, "message": unreachable_message}})
 
     return Handler
 
