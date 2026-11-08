@@ -342,7 +342,8 @@ def create_app(settings: Optional[Settings] = None, storage: Optional[Storage] =
             except ValueError as exc:
                 raise OrchestratorError("BAD_ADDRESS", str(exc))
             except ProviderError as exc:
-                raise OrchestratorError("PROVIDER_ERROR", scrub(str(exc)))
+                hint = getattr(exc, "hint", "")
+                raise OrchestratorError("PROVIDER_ERROR", scrub(str(exc)) + (f" — {hint}" if hint else ""))
         return run(discover)
 
     @app.delete("/ai/accounts/{name}", dependencies=[Depends(user_only)])

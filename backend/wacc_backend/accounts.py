@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 from typing import List, Optional
 
-from .orchestrator import CLOUD, LOCAL, OpenAICompatProvider, OrchestratorError, validate_base_url
+from .orchestrator import CLOUD, LOCAL, OpenAICompatProvider, OrchestratorError, clean_key, validate_base_url
 
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,30}$")
 RESERVED = {"local-llm", "cloud-llm", "mock"}  # names used by the environment-configured providers
@@ -40,9 +40,10 @@ def _clean(spec: dict) -> dict:
         raise OrchestratorError("BAD_MODEL", "Model name is required (no spaces, up to 100 characters)")
     key = spec.get("api_key") or None
     if key is not None:
-        key = str(key).strip()
-        if len(key) > 500 or any(c.isspace() for c in key):
-            raise OrchestratorError("BAD_KEY", "API key looks invalid (no spaces, up to 500 characters)")
+        try:
+            key = clean_key(key) or None  # stored keys are cleaned on every load; nothing is deleted
+        except ValueError as exc:
+            raise OrchestratorError("BAD_KEY", str(exc))
     if kind == CLOUD and not key:
         raise OrchestratorError("BAD_KEY", "A cloud account needs an API key")
     prices = []
