@@ -149,7 +149,7 @@ class ApiTests(Base):
         self.assertEqual(self.client.post("/workspaces/site/agents", json={"agent": "claude2"}, headers=self.c2).status_code, 403)
         self.assertEqual(self.client.post("/workspaces/site/agents", json={"agent": "claude2"}, headers=self.u).json()["agents"], ["claude2"])
         self.assertEqual(self.client.get("/workspaces", headers=self.c2).json()[0]["name"], "site")
-        bad = self.client.post("/workspaces", json={"title": "X", "folder": str(self.data / "z")}, headers=self.u)
+        bad = self.client.post("/workspaces", json={"title": "Kotu", "folder": str(self.data / "z")}, headers=self.u)
         self.assertEqual((bad.status_code, bad.json()["detail"]["code"]), (400, "BAD_FOLDER"))
         self.assertEqual(self.client.delete("/workspaces/site/agents/claude2", headers=self.u).json()["agents"], [])
         self.assertEqual(self.client.delete("/workspaces/site", headers=self.u).json(), {"removed": True})

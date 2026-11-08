@@ -24,7 +24,7 @@ AGENT_RE = re.compile(r"^[a-z][a-z0-9_-]{1,19}$")
 MAX_WORKSPACES = 50
 MAX_AGENTS = 30
 _TR = str.maketrans("çğıöşüÇĞİÖŞÜâîû", "cgiosuCGIOSUaiu")
-SENSITIVE_PARTS = {".ssh", ".aws", ".gnupg", ".azure", ".kube", ".docker", "appdata", "system32", "syswow64"}
+SENSITIVE_PARTS = {".ssh", ".aws", ".gnupg", ".azure", ".kube", ".docker", "system32", "syswow64"}
 
 
 def slugify(title: str) -> str:
@@ -53,7 +53,7 @@ def check_folder(folder: Path, forbidden: Iterable[Path], trusted_root: Optional
     if resolved.parent == resolved:
         raise StorageError("BAD_FOLDER", "Bir sürücünün kökü proje klasörü olamaz; içinde bir klasör seç")
     if any(part.lower() in SENSITIVE_PARTS for part in resolved.parts):
-        raise StorageError("BAD_FOLDER", "Sistem, kimlik bilgisi ya da uygulama verisi klasörleri proje klasörü olamaz")
+        raise StorageError("BAD_FOLDER", "Sistem ya da kimlik bilgisi (.ssh, .aws…) klasörleri proje klasörü olamaz")
     for env in ("WINDIR", "ProgramFiles", "ProgramFiles(x86)", "ProgramData"):
         base = os.environ.get(env)
         if base and _same_or_inside(resolved, Path(base)):
