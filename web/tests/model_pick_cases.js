@@ -9,6 +9,9 @@ const cases = [
   ["openai", ["text-embedding-3-small", "gpt-4o", "gpt-4o-mini"], "gpt-9", "gpt-4o-mini"],
   ["claude", ["claude-haiku-5-5", "claude-sonnet-5-5"], "claude-old", "claude-sonnet-5-5"],
   ["custom", ["a-embed", "b-chat"], "z", "b-chat"],
+  ["groq", ["llama-3.3-70b-versatile", "openai/gpt-oss-120b", "whisper-large-v3"], "x", "openai/gpt-oss-120b"],
+  ["gemini", ["gemini-3.8-flash-lite", "gemini-3.8-flash", "gemini-3.8-pro", "gemini-embedding-001"], "x", "gemini-3.8-flash"],
+  ["orfree", ["openai/gpt-4o", "google/gemma-4-31b-it:free", "nvidia/nemotron-3:free"], "x", "google/gemma-4-31b-it:free"],
   ["grok", [], "grok-4.7", "grok-4.7"],                           // no list: keep what was typed
 ];
 const failures = [];

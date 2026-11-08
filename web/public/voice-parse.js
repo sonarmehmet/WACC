@@ -25,7 +25,7 @@
   ];
   const PROVIDERS = [
     [/\b(grok|xai|x ai)\b/, "grok"], [/\b(chatgpt|openai|gpt)\b/, "openai"], [/\b(claude|anthropic)\b/, "claude"],
-    [/\bopenrouter\b/, "openrouter"], [/\b(ollama|yerel)\b/, "ollama"],
+    [/\bgroq\b/, "groq"], [/\bgemini\b/, "gemini"], [/\bopenrouter\b/, "openrouter"], [/\b(ollama|yerel)\b/, "ollama"],
   ];
   const WAKE = /^(hey |hi |ok )?(wacc|wack|wak|vak|vaks|vack|jarvis|cervis)\b[ ,:.!-]*/;
 
